@@ -3,6 +3,10 @@
 # C extensions
 *.so
 
+# Java
+*.class
+*.jar
+
 # Packages
 *.egg
 *.egg-info
@@ -34,3 +38,6 @@ nosetests.xml
 .mr.developer.cfg
 .project
 .pydevproject
+
+# Emacs
+*~
