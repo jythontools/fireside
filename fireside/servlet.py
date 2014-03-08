@@ -22,6 +22,13 @@ BASE_ENVIRONMENT = {
 }
 
 
+def empty_string_if_none(s):
+    if s is None:
+        return ""
+    else:
+        return s
+
+
 class WSGIServlet(ToolBase, HttpServlet):
 
     def init(self, config):
@@ -44,17 +51,19 @@ class WSGIServlet(ToolBase, HttpServlet):
     def service(self, req, resp):
         environ = dict(self.servlet_environ)
         environ.update({
-            "REQUEST_METHOD":  req.getMethod(),
+            "REQUEST_METHOD":  str(req.getMethod()),
             "SCRIPT_NAME": "", # FIXME
             "PATH_INFO": "",   # FIXME
-            "QUERY_STRING": req.getQueryString(),
-            "CONTENT_TYPE": req.getContentType(),
-            "CONTENT_LENGTH": req.getContentLength(),
-            "SERVER_NAME": req.getLocalName(),
+            "QUERY_STRING": empty_string_if_none(req.getQueryString()),  # per WSGI validation spec
+            "CONTENT_TYPE": empty_string_if_none(req.getContentType()),
+            "SERVER_NAME": str(req.getLocalName()),
             "SERVER_PORT": str(req.getLocalPort()),
             "wsgi.url_scheme": req.getScheme(),
             "wsgi.input": AdaptedInputStream(req.getInputStream())
             })
+        content_length = req.getContentLength()
+        if content_length != -1:
+            environ["CONTENT_LENGTH"] = str(content_length)
                                                
         # Copied with minimal adaptation from the spec:
         # http://legacy.python.org/dev/peps/pep-3333/#the-server-gateway-side
