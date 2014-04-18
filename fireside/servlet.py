@@ -32,8 +32,7 @@ def empty_string_if_none(s):
 class WSGIServlet(ToolBase, HttpServlet):
 
     def init(self, config):
-        #config = self.getServletConfig()
-        print "config", config
+        # print "config", config
         application_name = config.getInitParameter("wsgi.handler")
         parts = application_name.split(".")
         if len(parts) < 2 or not all(parts):
@@ -46,7 +45,7 @@ class WSGIServlet(ToolBase, HttpServlet):
         self.servlet_environ.update({
             "wsgi.errors": AdaptedErrLog(self.log)
             })
-        print "init", self.application, self.servlet_environ
+        # print "init", self.application, self.servlet_environ
 
     def service(self, req, resp):
         environ = dict(self.servlet_environ)
@@ -66,7 +65,7 @@ class WSGIServlet(ToolBase, HttpServlet):
         if content_length != -1:
             environ["CONTENT_LENGTH"] = str(content_length)
 
-        print "Processing request", environ, self.application
+        # print "Processing request", environ, self.application
                                                
         # Copied with minimal adaptation from the spec:
         # http://legacy.python.org/dev/peps/pep-3333/#the-server-gateway-side
