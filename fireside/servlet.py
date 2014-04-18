@@ -51,19 +51,22 @@ class WSGIServlet(ToolBase, HttpServlet):
     def service(self, req, resp):
         environ = dict(self.servlet_environ)
         environ.update({
+            # For now, assume that we only pass strings, not unicode
             "REQUEST_METHOD":  str(req.getMethod()),
-            "SCRIPT_NAME": "", # FIXME
-            "PATH_INFO": "",   # FIXME
-            "QUERY_STRING": empty_string_if_none(req.getQueryString()),  # per WSGI validation spec
-            "CONTENT_TYPE": empty_string_if_none(req.getContentType()),
+            "SCRIPT_NAME": str(req.getServletPath()),
+            "PATH_INFO": str(empty_string_if_none(req.getPathInfo())),
+            "QUERY_STRING": str(empty_string_if_none(req.getQueryString())),  # per WSGI validation spec
+            "CONTENT_TYPE": str(empty_string_if_none(req.getContentType())),
             "SERVER_NAME": str(req.getLocalName()),
             "SERVER_PORT": str(req.getLocalPort()),
-            "wsgi.url_scheme": req.getScheme(),
+            "wsgi.url_scheme": str(req.getScheme()),
             "wsgi.input": AdaptedInputStream(req.getInputStream())
             })
         content_length = req.getContentLength()
         if content_length != -1:
             environ["CONTENT_LENGTH"] = str(content_length)
+
+        print "Processing request", environ, self.application
                                                
         # Copied with minimal adaptation from the spec:
         # http://legacy.python.org/dev/peps/pep-3333/#the-server-gateway-side
