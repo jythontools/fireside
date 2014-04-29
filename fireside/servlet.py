@@ -12,9 +12,6 @@ from clamp import clamp_base
 ToolBase = clamp_base("org.python.tools")
 
 
-# FIXME benchmark w/ ab
-
-
 BASE_ENVIRONMENT = {
     "wsgi.version": (1, 0),
     "wsgi.multithread": True,
@@ -49,7 +46,6 @@ class WSGIServlet(ToolBase, HttpServlet):
     def service(self, req, resp):
         environ = dict(self.servlet_environ)
         environ.update({
-            # For now, assume that we only pass strings, not unicode
             "REQUEST_METHOD":  str(req.getMethod()),
             "SCRIPT_NAME": str(req.getServletPath()),
             "PATH_INFO": empty_string_if_none(req.getPathInfo()),
@@ -89,14 +85,12 @@ class WSGIServlet(ToolBase, HttpServlet):
                  # Before the first output, send the stored headers
                  status, response_headers = headers_sent[:] = headers_set
 
-                 # FIXME any specific req for cookie support? probably just headers
                  resp.setStatus(int(status.split()[0]))  # convert from such usage as "200 OK"
-                 for header in response_headers:
-                     # FIXME what encoding if any to be applied here?
-                     resp.addHeader(*header)
+                 for name, value in response_headers:
+                     resp.addHeader(name, value.encode("latin1"))
 
-            out.write(array.array("b", data))  # FIXME probably impossible to avoid copy in Jython
-            out.flush()  # FIXME implies flushBuffer?
+            out.write(array.array("b", data))
+            out.flush()
 
         def start_response(status, response_headers, exc_info=None):
             if exc_info:
@@ -133,9 +127,6 @@ class WSGIServlet(ToolBase, HttpServlet):
 
 
 class AdaptedInputStream(object):
-
-    # FIXME obviously need to figure out mocks necessary to model a ServletInputStream,
-    # including extra functionality like readLine
 
     # FIXME can we use available to be smarter/more responsive? related to supporting async ops
 
@@ -191,7 +182,8 @@ class AdaptedInputStream(object):
             return "".join((str(chunk) for chunk in chunks))
 
     def readlines(self, hint=None):
-        # FIXME apparently we can just ignore hint; for now this should suffice
+        # According to WSGI spec, can just ignore hint, so this will
+        # suffice
         return [self.readline()]
 
     def next(self):
@@ -224,4 +216,3 @@ class AdaptedErrLog(object):
     def writelines(self, seq):
         for msg in seq:
             self.write(msg)
-
