@@ -3,6 +3,7 @@
 # Named after a hot whiskey drink often made with coffee.
 
 import array
+import sys
 from javax.servlet.http import HttpServlet
 
 from clamp import clamp_base
@@ -26,13 +27,12 @@ def empty_string_if_none(s):
     if s is None:
         return ""
     else:
-        return s
+        return str(s)
 
 
 class WSGIServlet(ToolBase, HttpServlet):
 
     def init(self, config):
-        # print "config", config
         application_name = config.getInitParameter("wsgi.handler")
         parts = application_name.split(".")
         if len(parts) < 2 or not all(parts):
@@ -43,9 +43,8 @@ class WSGIServlet(ToolBase, HttpServlet):
         self.application = getattr(module, parts[-1])
         self.servlet_environ = dict(BASE_ENVIRONMENT)
         self.servlet_environ.update({
-            "wsgi.errors": AdaptedErrLog(self.log)
+            "wsgi.errors": AdaptedErrLog(self)
             })
-        # print "init", self.application, self.servlet_environ
 
     def service(self, req, resp):
         environ = dict(self.servlet_environ)
@@ -53,20 +52,27 @@ class WSGIServlet(ToolBase, HttpServlet):
             # For now, assume that we only pass strings, not unicode
             "REQUEST_METHOD":  str(req.getMethod()),
             "SCRIPT_NAME": str(req.getServletPath()),
-            "PATH_INFO": str(empty_string_if_none(req.getPathInfo())),
-            "QUERY_STRING": str(empty_string_if_none(req.getQueryString())),  # per WSGI validation spec
-            "CONTENT_TYPE": str(empty_string_if_none(req.getContentType())),
+            "PATH_INFO": empty_string_if_none(req.getPathInfo()),
+            "QUERY_STRING": empty_string_if_none(req.getQueryString()),  # per WSGI validation spec
+            "CONTENT_TYPE": empty_string_if_none(req.getContentType()),
+            "REMOTE_ADDR": str(req.getRemoteAddr()),
+            "REMOTE_HOST": str(req.getRemoteHost()),
+            "REMOTE_PORT": str(req.getRemotePort()),
             "SERVER_NAME": str(req.getLocalName()),
             "SERVER_PORT": str(req.getLocalPort()),
+            "SERVER_PROTOCOL": str(req.getProtocol()),
             "wsgi.url_scheme": str(req.getScheme()),
             "wsgi.input": AdaptedInputStream(req.getInputStream())
             })
         content_length = req.getContentLength()
         if content_length != -1:
             environ["CONTENT_LENGTH"] = str(content_length)
+        for header_name in req.getHeaderNames():
+            headers = req.getHeaders(header_name)
+            if headers:
+                cgi_header_name = "HTTP_%s" % str(header_name).replace('-', '_').upper()
+                environ[cgi_header_name] = ",".join([header.encode("latin1") for header in headers])
 
-        # print "Processing request", environ, self.application
-                                               
         # Copied with minimal adaptation from the spec:
         # http://legacy.python.org/dev/peps/pep-3333/#the-server-gateway-side
 
@@ -87,7 +93,7 @@ class WSGIServlet(ToolBase, HttpServlet):
                  resp.setStatus(int(status.split()[0]))  # convert from such usage as "200 OK"
                  for header in response_headers:
                      # FIXME what encoding if any to be applied here?
-                     resp.setHeader(*header)
+                     resp.addHeader(*header)
 
             out.write(array.array("b", data))  # FIXME probably impossible to avoid copy in Jython
             out.flush()  # FIXME implies flushBuffer?
@@ -203,16 +209,19 @@ class AdaptedInputStream(object):
 
 class AdaptedErrLog(object):
 
-    def __init__(self, logger):
-        self.logger = logger
+    def __init__(self, servlet):
+        self.servlet = servlet
 
     def flush(self):
 	pass
 
     def write(self, msg):
-        self.logger(msg)
+        if not self.servlet.getServletConfig():
+            sys.stderr.write("Servlet not configured: {}".format(msg))
+        else:
+            self.servlet.log(msg)
 
     def writelines(self, seq):
         for msg in seq:
-            self.logger(msg)
+            self.write(msg)
 
