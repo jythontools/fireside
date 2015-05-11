@@ -2,14 +2,13 @@
 #
 # Named after a hot whiskey drink often made with coffee.
 
+"""FIXME
+Implement the following
+If a call to len(iterable) succeeds, the server must be able to rely on the result being accurate. That is, if the iterable returned by the application provides a working __len__() method, it must return an accurate result. (See the Handling the Content-Length Header section for information on how this would normally be used.)
+"""
+
 import array
 import sys
-from javax.servlet.http import HttpServlet
-
-from clamp import clamp_base
-
-
-ToolBase = clamp_base("org.python.tools")
 
 
 BASE_ENVIRONMENT = {
@@ -27,9 +26,88 @@ def empty_string_if_none(s):
         return str(s)
 
 
-class WSGIServlet(ToolBase, HttpServlet):
+# FIXME move WSGIServlet, WSGIFilter to __init__ so we can get it named
+# org.python.tools.fireside.WSGIServlet, ...
 
-    def init(self, config):
+# Factor our generic servlet/filter code - maybe HttpBase? sounds good
+
+# Copied with minimal adaptation from the spec:
+# https://www.python.org/dev/peps/pep-3333/
+
+# Need additional verifications; see
+# https://github.com/Pylons/waitress/blob/master/waitress/task.py#L143 for some guidance here
+
+
+class WSGICall(object):
+
+    def __init__(self, environ, req, resp, before_write_callback=None):
+        self.environ = environ
+        self.req = req
+        self.resp = resp
+        self.before_write_callback = before_write_callback
+        self.headers_set = []
+        self.headers_sent = []
+
+    def set_status(self, status):
+        # convert from such usage as "404 Not Found"
+        split = status.find(" ")
+        code = status[:split]
+        msg = status[split:]
+        # HttpServletResponse.setStatus(int, String) is deprecated, but still useful for REST :)
+        # (setError does the wrong thing in comparison)
+        # see https://github.com/http4s/http4s/issues/32
+        # sometimes things are wrongly deprecated!
+        self.resp.setStatus(int(code), msg)
+
+    def write(self, data):
+        if not self.headers_set:
+             raise AssertionError("write() before start_response()")
+
+        if not self.headers_sent:
+             # Before the first output, send the stored headers
+             status, response_headers = self.headers_sent[:] = self.headers_set
+             self.set_status(status)
+             for name, value in response_headers:
+                 self.resp.addHeader(name, value.encode("latin1"))
+
+        out = self.resp.getOutputStream()
+        out.write(array.array("b", data))
+        out.flush()
+
+    def start_response(self, status, response_headers, exc_info=None):
+        if exc_info:
+            try:
+                if self.headers_sent:
+                    # Re-raise original exception if headers sent
+                    raise exc_info[1].with_traceback(exc_info[2])
+            finally:
+                exc_info = None     # avoid dangling circular ref
+        elif self.headers_set:
+            raise AssertionError("Headers already set!")
+
+        self.headers_set[:] = [status, response_headers]
+
+        # Note: error checking on the headers should happen here,
+        # *after* the headers are set.  That way, if an error
+        # occurs, start_response can only be re-called with
+        # exc_info set.
+
+        # FIXME ok do that err checking! need to check what other
+        # WSGI servers do here;
+        # http://waitress.readthedocs.org/en/latest/ might be a
+        # good choice
+
+        if self.before_write_callback:
+            self.req.setAttribute("org.python.tools.fireside.environ", self.environ)
+            self.before_write_callback()
+
+        return self.write
+
+
+class WSGIBase(object):
+
+    def do_init(self, config):
+        # FIXME add more error checking on application setup
         application_name = config.getInitParameter("wsgi.handler")
         parts = application_name.split(".")
         if len(parts) < 2 or not all(parts):
@@ -43,7 +121,10 @@ class WSGIServlet(ToolBase, HttpServlet):
             "wsgi.errors": AdaptedErrLog(self)
             })
 
-    def service(self, req, resp):
+    def get_environ(self, req):
+        environ = req.getAttribute("org.python.tools.fireside.environ")
+        if environ is not None:
+            return environ
         environ = dict(self.servlet_environ)
         environ.update({
             "REQUEST_METHOD":  str(req.getMethod()),
@@ -68,59 +149,17 @@ class WSGIServlet(ToolBase, HttpServlet):
             if headers:
                 cgi_header_name = "HTTP_%s" % str(header_name).replace('-', '_').upper()
                 environ[cgi_header_name] = ",".join([header.encode("latin1") for header in headers])
+        return environ
 
-        # Copied with minimal adaptation from the spec:
-        # http://legacy.python.org/dev/peps/pep-3333/#the-server-gateway-side
-
-        headers_set = []
-        headers_sent = []
-
-        def write(data):
-            out = resp.getOutputStream()
-
-            if not headers_set:
-                 raise AssertionError("write() before start_response()")
-
-            elif not headers_sent:
-                 # Before the first output, send the stored headers
-                 status, response_headers = headers_sent[:] = headers_set
-
-                 resp.setStatus(int(status.split()[0]))  # convert from such usage as "200 OK"
-                 for name, value in response_headers:
-                     resp.addHeader(name, value.encode("latin1"))
-
-            out.write(array.array("b", data))
-            out.flush()
-
-        def start_response(status, response_headers, exc_info=None):
-            if exc_info:
-                try:
-                    if headers_sent:
-                        # Re-raise original exception if headers sent
-                        raise exc_info[1].with_traceback(exc_info[2])
-                finally:
-                    exc_info = None     # avoid dangling circular ref
-            elif headers_set:
-                raise AssertionError("Headers already set!")
-
-            headers_set[:] = [status, response_headers]
-
-            # Note: error checking on the headers should happen here,
-            # *after* the headers are set.  That way, if an error
-            # occurs, start_response can only be re-called with
-            # exc_info set.
-
-            # FIXME ok do that err checking!
-
-            return write
-
-        result = self.application(environ, start_response)
+    def do_wsgi_call(self, call):
+        # refactor - the write loop needs to go in WSGICall
+        result = self.application(call.environ, call.start_response)
         try:
             for data in result:
                 if data:    # don't send headers until body appears
-                    write(data)
-            if not headers_sent:
-                write("")   # send headers now if body was empty
+                    call.write(data)
+            if not call.headers_sent:
+                call.write("")   # send headers now if body was empty
         finally:
             if hasattr(result, "close"):
                 result.close()

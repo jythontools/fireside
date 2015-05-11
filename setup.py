@@ -6,7 +6,7 @@ from clamp.commands import clamp_command
 
 setup(
     name = "fireside",
-    version = "0.1",
+    version = "0.2",
     packages = find_packages(),
     install_requires = ["clamp>=0.4"],
     clamp = {
