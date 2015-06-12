@@ -24,8 +24,8 @@ class WSGIFilter(ToolBase, Filter, WSGIBase):
         self.do_init(config)
     
     def doFilter(self, req, resp, chain):
-        def call_next_filter():
-            chain.doFilter(req, resp)
+        def call_next_filter(req):
+            chain.doFilter(resp)
 
         environ = self.get_environ(req)
         self.do_wsgi_call(WSGICall(environ, req, resp, call_next_filter))

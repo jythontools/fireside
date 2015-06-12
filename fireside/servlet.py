@@ -26,14 +26,6 @@ def empty_string_if_none(s):
         return str(s)
 
 
-# FIXME move WSGIServlet, WSGIFilter to __init__ so we can get it named
-# org.python.tools.fireside.WSGIServlet, ...
-
-# Factor our generic servlet/filter code - maybe HttpBase? sounds good
-
-# Copied with minimal adaptation from the spec:
-# https://www.python.org/dev/peps/pep-3333/
-
 # Need additional verifications; see
 # https://github.com/Pylons/waitress/blob/master/waitress/task.py#L143 for some guidance here
 
@@ -75,6 +67,7 @@ class WSGICall(object):
         out.flush()
 
     def start_response(self, status, response_headers, exc_info=None):
+        # possible location for write_callback
         if exc_info:
             try:
                 if self.headers_sent:
@@ -98,8 +91,7 @@ class WSGICall(object):
         # good choice
 
         if self.before_write_callback:
-            self.req.setAttribute("org.python.tools.fireside.environ", self.environ)
-            self.before_write_callback()
+            self.before_write_callback(self.wrap_request())
 
         return self.write
 
@@ -122,9 +114,6 @@ class WSGIBase(object):
             })
 
     def get_environ(self, req):
-        environ = req.getAttribute("org.python.tools.fireside.environ")
-        if environ is not None:
-            return environ
         environ = dict(self.servlet_environ)
         environ.update({
             "REQUEST_METHOD":  str(req.getMethod()),

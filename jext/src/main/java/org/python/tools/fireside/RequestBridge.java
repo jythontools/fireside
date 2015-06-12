@@ -38,10 +38,11 @@ public class RequestBridge {
                         }
                         System.err.println("Loading key=" + key);
                         String k = key.toString();
-                        if (k.equals("REQUEST_METHOD")) {
-                            return Py.newString(request.getMethod());
-                        } else if (k.equals("SCRIPT_NAME")) {
-                            return Py.newString(request.getServletPath());
+                        switch (k) {
+                            case "REQUEST_METHOD":
+                                return Py.newString(request.getMethod());
+                            case "SCRIPT_NAME":
+                                return Py.newString(request.getServletPath());
                         }
                         return Py.None;
                     }
@@ -71,9 +72,11 @@ public class RequestBridge {
     }
 
     public void loadAll() {
+        System.err.println("loadAll changed=" + changed);
         for (String k : settings()) {
             try {
-                if (!changed.contains(k)) {
+                if (!changed.contains(Py.newString(k))) {
+                    System.err.println("getting key=" + k);
                     cache.get(Py.newString(k));
                 }
             } catch (ExecutionException e) {
@@ -196,8 +199,9 @@ public class RequestBridge {
         }
 
         public Object remove(Object key) {
-            System.err.println("Removing key=" + key);
-            bridge.changed.add((PyObject) key);
+            PyObject pyKey = (PyObject)key;
+            System.err.println("Removing key=" + (pyKey.__repr__()));
+            bridge.changed.add(pyKey);
             return bridge.cache().asMap().remove(key);
         }
 
@@ -212,6 +216,7 @@ public class RequestBridge {
         // presumably we can just override the Iterator in this case
 
         public Set keySet() {
+            System.err.println("keySet");
             // does not imply loadAll! so need to come up with a class that allows works with these keys, including removal, without doing the entrySet implied by ForwardingMap.StandardKeySet - DO NOT USE THAT!
             // something like the following might work
             return new StandardKeySet() {
@@ -219,6 +224,7 @@ public class RequestBridge {
         }
 //
         public Set<Map.Entry> entrySet() {
+            System.err.println("entrySet");
             bridge.loadAll();
             return bridge.cache().asMap().entrySet();
 //            return new StandardEntrySet() {
