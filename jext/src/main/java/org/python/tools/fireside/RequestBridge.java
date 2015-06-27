@@ -29,7 +29,6 @@ public class RequestBridge {
     private final HttpServletRequest request;
     private final LoadingCache<PyObject, PyObject> cache;
     private final Set<PyObject> changed = Collections.newSetFromMap(new ConcurrentHashMap());
-    private static final PyObject TOMBSTONE = new PyObject();
 
     private static final String REQUEST_METHOD = "REQUEST_METHOD";
     private static final PyString PY_REQUEST_METHOD = Py.newString(REQUEST_METHOD);
@@ -76,10 +75,10 @@ public class RequestBridge {
         this.request = request;
         cache = CacheBuilder.newBuilder().build(
                 new CacheLoader<PyObject, PyObject>() {
-                    public PyObject load(PyObject key) {
+                    public PyObject load(PyObject key) throws ExecutionException {
                         if (changed.contains(key)) {
                             System.err.println("Do not load key=" + key);
-                            return Py.None; // acts as a tombstone
+                            throw new ExecutionException(null); //return Py.None; // acts as a tombstone
                         }
                         System.err.println("Loading key=" + key);
                         String k = key.toString();
@@ -159,7 +158,7 @@ public class RequestBridge {
         public String intercept(PyString key) {
             try {
                 PyObject value = (PyObject) bridge.cache().get(key);
-                if (value == Py.None || value == TOMBSTONE) {
+                if (value == Py.None) {
                     return null;
                 } else {
                     return value.toString(); // FIXME decode from latin1 to unicode
@@ -238,7 +237,9 @@ public class RequestBridge {
 
         public void clear() {
             System.err.println("Clearing changes");
-            // most likely need to add all keys to changed! FIXME
+            for (Object key : bridge.cache().asMap().keySet()) {
+                bridge.changed.add((PyObject)key);
+            }
             super.clear();
         }
 
@@ -262,30 +263,16 @@ public class RequestBridge {
 
         public Set keySet() {
             System.err.println("keySet");
-            // does not imply loadAll! so need to come up with a class that allows works with these keys, including removal, without doing the entrySet implied by ForwardingMap.StandardKeySet - DO NOT USE THAT!
-            // something like the following might work
+            // NB does not imply loadAll!
             return new StandardKeySet() {
             };
         }
 
-        //
         public Set<Map.Entry> entrySet() {
             System.err.println("entrySet" + bridge.cache().asMap());
             bridge.loadAll();
             return bridge.cache().asMap().entrySet();
-//            return new StandardEntrySet() {
-//
-//                @Override
-//                public Iterator<Entry<Object, Object>> iterator() {
-//                    bridge.cache().asMap().entrySet().iterator();
-//                }
-//            };
         }
-//
-//        Collection<V> values() {
-//            bridge.loadAll();
-//            return new StandardValues(delegate());
-//        }
 
     }
 
