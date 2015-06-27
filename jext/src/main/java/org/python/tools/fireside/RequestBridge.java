@@ -1,7 +1,9 @@
+// FIXME we may have an issue with concurrent usage. presumably such usage should be sequenced via a mutex of some kind,
+// so it's just a question of ensuring tracking structures are not corrupted
+
 package org.python.tools.fireside;
 
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
@@ -13,6 +15,8 @@ import javax.servlet.http.HttpServletRequestWrapper;
 import org.python.core.Py;
 import org.python.core.PyObject;
 import org.python.core.PyString;
+import org.python.core.codecs;
+import org.python.google.common.base.CharMatcher;
 import org.python.google.common.cache.CacheBuilder;
 import org.python.google.common.cache.CacheLoader;
 import org.python.google.common.cache.LoadingCache;
@@ -24,8 +28,49 @@ import org.python.google.common.collect.Iterators;
 public class RequestBridge {
     private final HttpServletRequest request;
     private final LoadingCache<PyObject, PyObject> cache;
-    static final PyObject TOMBSTONE = new PyObject();
     private final Set<PyObject> changed = Collections.newSetFromMap(new ConcurrentHashMap());
+    private static final PyObject TOMBSTONE = new PyObject();
+
+    private static final String REQUEST_METHOD = "REQUEST_METHOD";
+    private static final PyString PY_REQUEST_METHOD = Py.newString(REQUEST_METHOD);
+    private static final String SCRIPT_NAME = "SCRIPT_NAME";
+    private static final PyString PY_SCRIPT_NAME = Py.newString(SCRIPT_NAME);
+    private static final String PATH_INFO = "PATH_INFO";
+    private static final PyString PY_PATH_INFO = Py.newString(PATH_INFO);
+    private static final String QUERY_STRING = "QUERY_STRING";
+    private static final PyString PY_QUERY_STRING = Py.newString(QUERY_STRING);
+    private static final String CONTENT_TYPE = "CONTENT_TYPE";
+    private static final PyString PY_CONTENT_TYPE = Py.newString(CONTENT_TYPE);
+    private static final String REMOTE_ADDR = "REMOTE_ADDR";
+    private static final PyString PY_REMOTE_ADDR = Py.newString(REMOTE_ADDR);
+    private static final String REMOTE_HOST = "REMOTE_HOST";
+    private static final PyString PY_REMOTE_HOST = Py.newString(REMOTE_HOST);
+    private static final String REMOTE_PORT = "REMOTE_PORT";
+    private static final PyString PY_REMOTE_PORT = Py.newString(REMOTE_PORT);
+    private static final String SERVER_NAME = "SERVER_NAME";
+    private static final PyString PY_SERVER_NAME = Py.newString(SERVER_NAME);
+    private static final String SERVER_PORT = "SERVER_PORT";
+    private static final PyString PY_SERVER_PORT = Py.newString(SERVER_PORT);
+    private static final String SERVER_PROTOCOL = "SERVER_PROTOCOL";
+    private static final PyString PY_SERVER_PROTOCOL = Py.newString(SERVER_PROTOCOL);
+    private static final String WSGI_URL_SCHEME = "wsgi.url_scheme";
+    private static final PyString PY_WSGI_URL_SCHEME = Py.newString(WSGI_URL_SCHEME);
+
+    static private PyString latin1(String s) {
+        if (CharMatcher.ASCII.matchesAllOf(s)) {
+            return Py.newString(s);
+        } else {
+            return Py.newString(codecs.PyUnicode_EncodeLatin1(s, s.length(), null));
+        }
+    }
+
+    static private PyString emptyIfNull(String s) {
+        if (s == null) {
+            return Py.EmptyString;
+        } else {
+            return latin1(s);
+        }
+    }
 
     public RequestBridge(final HttpServletRequest request) {
         this.request = request;
@@ -34,17 +79,38 @@ public class RequestBridge {
                     public PyObject load(PyObject key) {
                         if (changed.contains(key)) {
                             System.err.println("Do not load key=" + key);
-                            return Py.None; //  TOMBSTONE;
+                            return Py.None; // acts as a tombstone
                         }
                         System.err.println("Loading key=" + key);
                         String k = key.toString();
                         switch (k) {
-                            case "REQUEST_METHOD":
-                                return Py.newString(request.getMethod());
-                            case "SCRIPT_NAME":
-                                return Py.newString(request.getServletPath());
+                            case REQUEST_METHOD:
+                                return latin1(request.getMethod());
+                            case SCRIPT_NAME:
+                                return latin1(request.getServletPath());
+                            case PATH_INFO:
+                                return emptyIfNull(request.getPathInfo());
+                            case QUERY_STRING:
+                                return emptyIfNull(request.getQueryString());
+                            case CONTENT_TYPE:
+                                return emptyIfNull(request.getContentType());
+                            case REMOTE_ADDR:
+                                return latin1(request.getRemoteAddr());
+                            case REMOTE_HOST:
+                                return latin1(request.getRemoteHost());
+                            case REMOTE_PORT:
+                                return Py.newString(String.valueOf(request.getRemotePort()));
+                            case SERVER_NAME:
+                                return latin1(request.getServerName());
+                            case SERVER_PORT:
+                                return Py.newString(String.valueOf(request.getServerPort()));
+                            case SERVER_PROTOCOL:
+                                return latin1(request.getProtocol());
+                            case WSGI_URL_SCHEME:
+                                return latin1(request.getScheme());
+                            default:
+                                return Py.None;
                         }
-                        return Py.None;
                     }
                 });
     }
@@ -64,11 +130,8 @@ public class RequestBridge {
 
     Iterable<String> settings() {
         return ImmutableList.copyOf(Iterators.concat(
-                Iterators.forArray("REQUEST_METHOD", "SCRIPT_NAME"), // etc
+                Iterators.forArray(REQUEST_METHOD, SCRIPT_NAME, PATH_INFO), // FIXME add remaining keys
                 Iterators.forEnumeration(request.getHeaderNames())));
-
-        // canonical CGI settings from supported methods in HttpServletRequest, plus those in getHeaderNames (Enumeration)
-// use http://docs.guava-libraries.googlecode.com/git/javadoc/com/google/common/collect/Iterators.html#forEnumeration(java.util.Enumeration)
     }
 
     public void loadAll() {
@@ -93,66 +156,51 @@ public class RequestBridge {
             this.bridge = bridge;
         }
 
-        public String getMethod() {
-            PyString requestMethodKey = Py.newString("REQUEST_METHOD");
-            if (!bridge.changed.contains(requestMethodKey)) {
-                return bridge.request.getMethod();
-            }
+        public String intercept(PyString key) {
             try {
-                System.err.println("Intercepted key for REQUEST_METHOD");
-                PyObject requestMethod = (PyObject)bridge.cache().get(requestMethodKey);
-                if (requestMethod == TOMBSTONE) {
+                PyObject value = (PyObject) bridge.cache().get(key);
+                if (value == Py.None || value == TOMBSTONE) {
                     return null;
                 } else {
-                    return requestMethod.toString();
+                    return value.toString(); // FIXME decode from latin1 to unicode
                 }
             } catch (ExecutionException e) {
                 return null;
             }
-
         }
+
+        public String getMethod() {
+            if (!bridge.changed.contains(PY_REQUEST_METHOD)) {
+                return bridge.request.getMethod();
+            } else {
+                return intercept(PY_REQUEST_METHOD);
+
+            }
+        }
+
+        public String getServletPath() {
+            if (!bridge.changed.contains(PY_SCRIPT_NAME)) {
+                return bridge.request.getMethod();
+            } else {
+                return intercept(PY_SCRIPT_NAME);
+            }
+        }
+
+        public String getPathInfo() {
+            if (!bridge.changed.contains(PY_PATH_INFO)) {
+                return bridge.request.getMethod();
+            } else {
+                return intercept(PY_PATH_INFO);
+            }
+        }
+
+
     }
-//
-//        public String getServletPath() {
-//            String servletPath = bridge.changes.get("SCRIPT_NAME");
-//            if (servletPath != null) {
-//                return servletPath;
-//            } else {
-//                return bridge.request.getServletPath();
-//            }
-//        }
-//
-//        public String getPathInfo() {
-//            String pathInfo = bridge.changes.get("PATH_INFO");
-//            if (pathInfo != null) {
-//                return pathInfo;
-//            } else {
-//                return bridge.request.getPathInfo();
-//            }
-//        }
-//
-//        public String getQueryString() {
-//            String queryString = bridge.changes.get("QUERY_STRING");
-//            if (queryString != null) {
-//                return queryString;
-//            } else {
-//                return bridge.request.getQueryString();
-//            }
-//        }
-//
-//        public String getContentType() {
-//            String contentType = bridge.changes.get("CONTENT_TYPE");
-//            if (contentType != null) {
-//                return contentType;
-//            } else {
-//                return bridge.request.getContentType();
-//            }
-//        }
 
 //
-//        "REQUEST_METHOD":  str(req.getMethod()),
-//                "SCRIPT_NAME": str(req.getServletPath()),
-//                "PATH_INFO": empty_string_if_none(req.getPathInfo()),
+//        "PY_REQUEST_METHOD":  str(req.getMethod()),
+//                "PY_SCRIPT_NAME": str(req.getServletPath()),
+//                "PY_PATH_INFO": empty_string_if_none(req.getPathInfo()),
 //                "QUERY_STRING": empty_string_if_none(req.getQueryString()),  # per WSGI validation spec
 //        "CONTENT_TYPE": empty_string_if_none(req.getContentType()),
 //                "REMOTE_ADDR": str(req.getRemoteAddr()),
@@ -176,12 +224,7 @@ public class RequestBridge {
         public Object get(Object key) {
             System.err.println("Getting key=" + key);
             try {
-                Object value = bridge.cache().get(key);
-                if (value == TOMBSTONE) {
-                    return null;
-                } else {
-                    return value;
-                }
+                return bridge.cache().get(key);
             } catch (ExecutionException e) {
                 throw Py.KeyError((PyObject) key);
             }
@@ -189,19 +232,21 @@ public class RequestBridge {
 
         public Object put(Object key, Object value) {
             System.err.println("Updating key=" + key + ", value=" + value);
-            bridge.changed.add((PyObject)key);
+            bridge.changed.add((PyObject) key);
             return super.put(key, value);
         }
 
         public void clear() {
             System.err.println("Clearing changes");
+            // most likely need to add all keys to changed! FIXME
             super.clear();
         }
 
         public Object remove(Object key) {
-            PyObject pyKey = (PyObject)key;
+            PyObject pyKey = (PyObject) key;
             System.err.println("Removing key=" + (pyKey.__repr__()));
             bridge.changed.add(pyKey);
+            // what if we remove a key that we haven't lazily loaded FIXME
             return bridge.cache().asMap().remove(key);
         }
 
@@ -222,9 +267,10 @@ public class RequestBridge {
             return new StandardKeySet() {
             };
         }
-//
+
+        //
         public Set<Map.Entry> entrySet() {
-            System.err.println("entrySet");
+            System.err.println("entrySet" + bridge.cache().asMap());
             bridge.loadAll();
             return bridge.cache().asMap().entrySet();
 //            return new StandardEntrySet() {
@@ -241,6 +287,6 @@ public class RequestBridge {
 //            return new StandardValues(delegate());
 //        }
 
-   }
+    }
 
 }
