@@ -3,8 +3,6 @@
 
 package org.python.tools.fireside;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
@@ -41,7 +39,12 @@ public class RequestBridge {
     private static final String WSGI_MULTITHREAD = "wsgi.multithread";
     private static final String WSGI_MULTIPROCESS = "wsgi.multiprocess";
     private static final String WSGI_RUN_ONCE = "wsgi.run_once";
+    private static final String WSGI_ERRORS = "wsgi.errors";
     private static final String WSGI_INPUT = "wsgi.input";
+
+    private static final String WSGI_URL_SCHEME = "wsgi.url_scheme";
+    private static final PyString PY_WSGI_URL_SCHEME = Py.newString(WSGI_URL_SCHEME);
+
     private static final String REQUEST_METHOD = "REQUEST_METHOD";
     private static final PyString PY_REQUEST_METHOD = Py.newString(REQUEST_METHOD);
     private static final String SCRIPT_NAME = "SCRIPT_NAME";
@@ -64,24 +67,29 @@ public class RequestBridge {
     private static final PyString PY_SERVER_PORT = Py.newString(SERVER_PORT);
     private static final String SERVER_PROTOCOL = "SERVER_PROTOCOL";
     private static final PyString PY_SERVER_PROTOCOL = Py.newString(SERVER_PROTOCOL);
-    private static final String WSGI_URL_SCHEME = "wsgi.url_scheme";
-    private static final PyString PY_WSGI_URL_SCHEME = Py.newString(WSGI_URL_SCHEME);
     private static final String CONTENT_LENGTH = "CONTENT_LENGTH";
     private static final PyString PY_CONTENT_LENGTH = Py.newString(CONTENT_LENGTH);
 
-    public RequestBridge(final HttpServletRequest request) {
+    public RequestBridge(final HttpServletRequest request, final PyObject errLog, final PyObject wsgiInputStream) {
         this.request = request;
         mapCGI = getMappingForCGI(request);
+        // Cache all keys for a request - we are effectively building up the environ lazily,
+        // while using updates to track for the request wrapper.
+        //
+        // This reduces overhead if not all keys are used, because of rewrites to/from latin1
+        // encoding and other conversions and especially if not all keys are rewritten
+        // in a servlet filter.
         cache = CacheBuilder.newBuilder().build(
                 new CacheLoader<PyObject, PyObject>() {
                     public PyObject load(PyObject key) throws ExecutionException {
                         if (changed.contains(key)) {
-                            System.err.println("Do not load key=" + key);
+//                            System.err.println("Do not load key=" + key);
                             throw new ExecutionException(null);
                         }
-                        System.err.println("Loading key=" + key);
-                        // do the unwrap so we can take advantage of Java 7's support for
-                        // efficient string switch, via hashing
+//                        System.err.println("Loading key=" + key);
+                        // Unwrap so we can take advantage of Java 7's support for
+                        // efficient string switch, via hashing. Effectively the below switch
+                        // is a hash table.
                         String k = key.toString();
                         switch (k) {
                             case WSGI_VERSION:
@@ -92,9 +100,12 @@ public class RequestBridge {
                                 return Py.False;
                             case WSGI_RUN_ONCE:
                                 return Py.False;
+                            case WSGI_ERRORS:
+                                return errLog;
                             case WSGI_INPUT:
-//                                return new AdaptedInputStream(request);
-                                return Py.None;
+                                return wsgiInputStream;
+                            case WSGI_URL_SCHEME:
+                                return latin1(request.getScheme());
                             case REQUEST_METHOD:
                                 return latin1(request.getMethod());
                             case SCRIPT_NAME:
@@ -117,8 +128,6 @@ public class RequestBridge {
                                 return Py.newString(String.valueOf(request.getServerPort()));
                             case SERVER_PROTOCOL:
                                 return latin1(request.getProtocol());
-                            case WSGI_URL_SCHEME:
-                                return latin1(request.getScheme());
                             case CONTENT_LENGTH:
                                 return getContentLength();
                             default:
@@ -171,7 +180,7 @@ public class RequestBridge {
 
     private PyString getHeader(String wsgiName) throws ExecutionException {
         // FIXME does this handle HTTP_COOKIE, or do we need to dispatch through on that as well?
-        System.err.println("mapCGI=" + mapCGI + ", wsgiName=" + wsgiName);
+//        System.err.println("mapCGI=" + mapCGI + ", wsgiName=" + wsgiName);
         String name = mapCGI.get(wsgiName);
         if (name != null) {
             // Referenced CGI specs are not directly available (FIXME add wayback archive URLs?)
@@ -219,17 +228,18 @@ public class RequestBridge {
     Iterable<String> settings() {
         return ImmutableList.copyOf(Iterators.concat(
                 Iterators.forArray(
-                        WSGI_VERSION, WSGI_MULTITHREAD, WSGI_MULTIPROCESS, WSGI_RUN_ONCE, WSGI_INPUT,
+                        WSGI_VERSION, WSGI_MULTITHREAD, WSGI_MULTIPROCESS, WSGI_RUN_ONCE,
+                        WSGI_ERRORS, WSGI_INPUT, WSGI_URL_SCHEME,
                         REQUEST_METHOD, SCRIPT_NAME, PATH_INFO), // FIXME add remaining keys
                 mapCGI.keySet().iterator()));
     }
 
     public void loadAll() {
-        System.err.println("loadAll changed=" + changed);
+//        System.err.println("loadAll changed=" + changed);
         for (String k : settings()) {
             try {
                 if (!changed.contains(Py.newString(k))) {
-                    System.err.println("getting key=" + k);
+//                    System.err.println("getting key=" + k);
                     cache.get(Py.newString(k));
                 }
             } catch (ExecutionException e) {
@@ -303,22 +313,22 @@ public class RequestBridge {
         }
 
         public Object get(Object key) {
-            System.err.println("Getting key=" + key);
+//            System.err.println("Getting key=" + key);
             try {
                 return bridge.cache().get(key);
             } catch (ExecutionException e) {
-                throw Py.KeyError((PyObject) key);
+                return null; // throw Py.KeyError((PyObject) key);
             }
         }
 
         public Object put(Object key, Object value) {
-            System.err.println("Updating key=" + key + ", value=" + value);
+//            System.err.println("Updating key=" + key + ", value=" + value);
             bridge.changed.add((PyObject) key);
             return super.put(key, value);
         }
 
         public void clear() {
-            System.err.println("Clearing changes");
+//            System.err.println("Clearing changes");
             for (Object key : bridge.cache().asMap().keySet()) {
                 bridge.changed.add((PyObject) key);
             }
@@ -327,7 +337,7 @@ public class RequestBridge {
 
         public Object remove(Object key) {
             PyObject pyKey = (PyObject) key;
-            System.err.println("Removing key=" + (pyKey.__repr__()));
+//            System.err.println("Removing key=" + (pyKey.__repr__()));
             bridge.changed.add(pyKey);
             // what if we remove a key that we haven't lazily loaded FIXME
             return bridge.cache().asMap().remove(key);
@@ -343,98 +353,18 @@ public class RequestBridge {
         // presumably we can just override the Iterator in this case
 
         public Set keySet() {
-            System.err.println("keySet");
+//            System.err.println("keySet");
             // NB does not imply loadAll!
             return new StandardKeySet() {
             };
         }
 
         public Set<Map.Entry> entrySet() {
-            System.err.println("entrySet" + bridge.cache().asMap());
+//            System.err.println("entrySet" + bridge.cache().asMap());
             bridge.loadAll();
             return bridge.cache().asMap().entrySet();
         }
 
-    }
-
-    static class AdaptedInputStream extends PyObject {
-
-        private final InputStream inputStream;
-
-        public AdaptedInputStream(HttpServletRequest request) throws IOException {
-            inputStream = request.getInputStream();
-        }
-
- /*
-        def __init__(self, input_stream):
-        self.input_stream = input_stream
-
-    def _read_chunk(self, size):
-        # Read a chunk of data from input, or None
-        chunk = bytearray(size)
-        result = self.input_stream.read(chunk)
-        if result > 0:
-            if result < size:
-                chunk = buffer(chunk, 0, result)
-            return chunk
-        return None
-
-    def read(self, size=None):
-        if size is None:
-            chunks = []
-            while True:
-                chunk = self._read_chunk(8192)
-                if chunk is None:
-                    break
-                chunks.append(chunk)
-            return "".join((str(chunk) for chunk in chunks))
-        else:
-            chunk = self._read_chunk(size)
-            if chunk is None:
-                return ""
-            else:
-                return str(chunk)
-
-    def readline(self, size=None):
-        if size is not None:
-            chunk = bytearray(size)
-            result = self.input_stream.readLine(chunk, 0, size)
-            if result == -1:
-                return ""
-            else:
-                return str(buffer(chunk, 0, result))
-        else:
-            chunks = []
-            while True:
-                # just assume relatively long lines, although there's
-                # a probably a better heuristic amount to allocate
-                chunk = bytearray(512)
-                result = self.input_stream.readLine(chunk, 0, 512)
-                if result == -1:
-                    break
-                chunks.append(chunk)
-                if result < 512 or chunk[511] == "\n":
-                    break
-            return "".join((str(chunk) for chunk in chunks))
-
-    def readlines(self, hint=None):
-        # According to WSGI spec, can just ignore hint, so this will
-        # suffice
-        return [self.readline()]
-
-    def next(self):
-        line = self.readline()
-        if line is "":
-            raise StopIteration
-        else:
-            return line
-
-    __next__ = next   # a nod to Python 3
-
-    def __iter__(self):
-        return self
-
-     */
     }
 
 }

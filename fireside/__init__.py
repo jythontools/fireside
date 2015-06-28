@@ -1,3 +1,6 @@
+import sys
+
+from jythonlib import dict_builder
 from clamp import clamp_base
 from javax.servlet import Filter
 from javax.servlet.http import HttpServlet
@@ -14,7 +17,10 @@ class WSGIServlet(ToolBase, HttpServlet, WSGIBase):
         self.do_init(config)
 
     def service(self, req, resp):
-        environ = self.get_environ(req)
+        #print >> sys.stderr, "service req=%s, resp=%s" % (req, resp)
+        bridge = self.get_bridge(req)
+        environ = dict_builder(bridge.asMap)()
+        #print >> sys.stderr, "environ=%s" % (environ,)
         self.do_wsgi_call(WSGICall(environ, req, resp))
 
 
@@ -24,8 +30,11 @@ class WSGIFilter(ToolBase, Filter, WSGIBase):
         self.do_init(config)
     
     def doFilter(self, req, resp, chain):
-        def call_next_filter(req):
-            chain.doFilter(resp)
+        bridge = self.get_bridge(req)
+        environ = dict_builder(bridge.asMap)()
+        wrapped_req = bridge.asWrapper()
 
-        environ = self.get_environ(req)
+        def call_next_filter():
+            chain.doFilter(wrapped_req, resp)
+
         self.do_wsgi_call(WSGICall(environ, req, resp, call_next_filter))

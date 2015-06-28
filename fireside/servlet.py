@@ -10,23 +10,10 @@ If a call to len(iterable) succeeds, the server must be able to rely on the resu
 import array
 import sys
 
-
-BASE_ENVIRONMENT = {
-    "wsgi.version": (1, 0),
-    "wsgi.multithread": True,
-    "wsgi.multiprocess": False,
-    "wsgi.run_once": False,
-}
+from org.python.tools.fireside import RequestBridge
 
 
-def empty_string_if_none(s):
-    if s is None:
-        return ""
-    else:
-        return str(s)
-
-
-# Need additional verifications; see
+# FIXME perform additional verifications; see
 # https://github.com/Pylons/waitress/blob/master/waitress/task.py#L143 for some guidance here
 
 
@@ -91,7 +78,7 @@ class WSGICall(object):
         # good choice
 
         if self.before_write_callback:
-            self.before_write_callback(self.wrap_request())
+            self.before_write_callback()
 
         return self.write
 
@@ -108,37 +95,10 @@ class WSGIBase(object):
         module_name = ".".join(parts[:-1])
         module = __import__(module_name)
         self.application = getattr(module, parts[-1])
-        self.servlet_environ = dict(BASE_ENVIRONMENT)
-        self.servlet_environ.update({
-            "wsgi.errors": AdaptedErrLog(self)
-            })
+        self.err_log = AdaptedErrLog(self)
 
-    def get_environ(self, req):
-        environ = dict(self.servlet_environ)
-        environ.update({
-            "REQUEST_METHOD":  str(req.getMethod()),
-            "SCRIPT_NAME": str(req.getServletPath()),
-            "PATH_INFO": empty_string_if_none(req.getPathInfo()),
-            "QUERY_STRING": empty_string_if_none(req.getQueryString()),  # per WSGI validation spec
-            "CONTENT_TYPE": empty_string_if_none(req.getContentType()),
-            "REMOTE_ADDR": str(req.getRemoteAddr()),
-            "REMOTE_HOST": str(req.getRemoteHost()),
-            "REMOTE_PORT": str(req.getRemotePort()),
-            "SERVER_NAME": str(req.getLocalName()),
-            "SERVER_PORT": str(req.getLocalPort()),
-            "SERVER_PROTOCOL": str(req.getProtocol()),
-            "wsgi.url_scheme": str(req.getScheme()),
-            "wsgi.input": AdaptedInputStream(req.getInputStream())
-            })
-        content_length = req.getContentLength()
-        if content_length != -1:
-            environ["CONTENT_LENGTH"] = str(content_length)
-        for header_name in req.getHeaderNames():
-            headers = req.getHeaders(header_name)
-            if headers:
-                cgi_header_name = "HTTP_%s" % str(header_name).replace('-', '_').upper()
-                environ[cgi_header_name] = ",".join([header.encode("latin1") for header in headers])
-        return environ
+    def get_bridge(self, req):
+        return RequestBridge(req, self.err_log, AdaptedInputStream(req.getInputStream()))
 
     def do_wsgi_call(self, call):
         # refactor - the write loop needs to go in WSGICall
