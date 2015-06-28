@@ -3,7 +3,11 @@
 
 package org.python.tools.fireside;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Collections;
+import java.util.Enumeration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
@@ -15,6 +19,7 @@ import javax.servlet.http.HttpServletRequestWrapper;
 import org.python.core.Py;
 import org.python.core.PyObject;
 import org.python.core.PyString;
+import org.python.core.PyTuple;
 import org.python.core.codecs;
 import org.python.google.common.base.CharMatcher;
 import org.python.google.common.cache.CacheBuilder;
@@ -29,7 +34,14 @@ public class RequestBridge {
     private final HttpServletRequest request;
     private final LoadingCache<PyObject, PyObject> cache;
     private final Set<PyObject> changed = Collections.newSetFromMap(new ConcurrentHashMap());
+    private final Map<String, String> mapCGI;
 
+    // keys
+    private static final String WSGI_VERSION = "wsgi.version";
+    private static final String WSGI_MULTITHREAD = "wsgi.multithread";
+    private static final String WSGI_MULTIPROCESS = "wsgi.multiprocess";
+    private static final String WSGI_RUN_ONCE = "wsgi.run_once";
+    private static final String WSGI_INPUT = "wsgi.input";
     private static final String REQUEST_METHOD = "REQUEST_METHOD";
     private static final PyString PY_REQUEST_METHOD = Py.newString(REQUEST_METHOD);
     private static final String SCRIPT_NAME = "SCRIPT_NAME";
@@ -54,35 +66,35 @@ public class RequestBridge {
     private static final PyString PY_SERVER_PROTOCOL = Py.newString(SERVER_PROTOCOL);
     private static final String WSGI_URL_SCHEME = "wsgi.url_scheme";
     private static final PyString PY_WSGI_URL_SCHEME = Py.newString(WSGI_URL_SCHEME);
-
-    static private PyString latin1(String s) {
-        if (CharMatcher.ASCII.matchesAllOf(s)) {
-            return Py.newString(s);
-        } else {
-            return Py.newString(codecs.PyUnicode_EncodeLatin1(s, s.length(), null));
-        }
-    }
-
-    static private PyString emptyIfNull(String s) {
-        if (s == null) {
-            return Py.EmptyString;
-        } else {
-            return latin1(s);
-        }
-    }
+    private static final String CONTENT_LENGTH = "CONTENT_LENGTH";
+    private static final PyString PY_CONTENT_LENGTH = Py.newString(CONTENT_LENGTH);
 
     public RequestBridge(final HttpServletRequest request) {
         this.request = request;
+        mapCGI = getMappingForCGI(request);
         cache = CacheBuilder.newBuilder().build(
                 new CacheLoader<PyObject, PyObject>() {
                     public PyObject load(PyObject key) throws ExecutionException {
                         if (changed.contains(key)) {
                             System.err.println("Do not load key=" + key);
-                            throw new ExecutionException(null); //return Py.None; // acts as a tombstone
+                            throw new ExecutionException(null);
                         }
                         System.err.println("Loading key=" + key);
+                        // do the unwrap so we can take advantage of Java 7's support for
+                        // efficient string switch, via hashing
                         String k = key.toString();
                         switch (k) {
+                            case WSGI_VERSION:
+                                return new PyTuple(Py.One, Py.Zero);
+                            case WSGI_MULTITHREAD:
+                                return Py.True;
+                            case WSGI_MULTIPROCESS:
+                                return Py.False;
+                            case WSGI_RUN_ONCE:
+                                return Py.False;
+                            case WSGI_INPUT:
+//                                return new AdaptedInputStream(request);
+                                return Py.None;
                             case REQUEST_METHOD:
                                 return latin1(request.getMethod());
                             case SCRIPT_NAME:
@@ -107,11 +119,88 @@ public class RequestBridge {
                                 return latin1(request.getProtocol());
                             case WSGI_URL_SCHEME:
                                 return latin1(request.getScheme());
+                            case CONTENT_LENGTH:
+                                return getContentLength();
                             default:
-                                return Py.None;
+                                return getHeader(k);
                         }
                     }
                 });
+    }
+
+    static private PyString latin1(String s) {
+        if (CharMatcher.ASCII.matchesAllOf(s)) {
+            return Py.newString(s);
+        } else {
+            return Py.newString(codecs.PyUnicode_EncodeLatin1(s, s.length(), null));
+        }
+    }
+
+    static private PyString emptyIfNull(String s) {
+        if (s == null) {
+            return Py.EmptyString;
+        } else {
+            return latin1(s);
+        }
+    }
+
+    private PyString getContentLength() throws ExecutionException {
+        int length = request.getContentLength();
+        if (length != -1) {
+            return Py.newString(String.valueOf(length));
+        } else {
+            throw new ExecutionException(null);
+        }
+    }
+
+    private static Map<String, String> getMappingForCGI(HttpServletRequest request) {
+        Enumeration<String> names = request.getHeaderNames();
+        Map<String, String> mapping = new LinkedHashMap();
+        while (names.hasMoreElements()) {
+            String name = names.nextElement();
+            // It is possible that this mapping is not bijective, but that's just a basic
+            // problem with CGI/WSGI naming. Also I would assume that real usage of HTTP headers
+            // are not going to do that.
+            //
+            // Regardless, we preserve the ordering of entries via the LHM.
+            String cgiName = "HTTP_" + name.replace('-', '_').toUpperCase();
+            mapping.put(cgiName, name);
+        }
+        return Collections.unmodifiableMap(mapping);
+    }
+
+    private PyString getHeader(String wsgiName) throws ExecutionException {
+        // FIXME does this handle HTTP_COOKIE, or do we need to dispatch through on that as well?
+        System.err.println("mapCGI=" + mapCGI + ", wsgiName=" + wsgiName);
+        String name = mapCGI.get(wsgiName);
+        if (name != null) {
+            // Referenced CGI specs are not directly available (FIXME add wayback archive URLs?)
+            // One source is https://www.ietf.org/rfc/rfc3875, but does not specify actual concatenation!
+            // but this seems reasonable:
+            // http://stackoverflow.com/questions/1801124/how-does-wsgi-handle-multiple-request-headers-with-the-same-name
+            Enumeration<String> values = request.getHeaders(name);
+            if (values == null) {
+                throw new ExecutionException(null);
+            }
+            StringBuilder builder = new StringBuilder();
+            boolean firstThru = true;
+            while (values.hasMoreElements()) {
+                if (!firstThru) {
+                    builder.append(";");
+                }
+                String value = values.nextElement();
+                builder.append(latin1(value));
+                firstThru = false;
+            }
+            if (firstThru) {
+                // no header at all
+                throw new ExecutionException(null);
+            }
+            return Py.newString(builder.toString());
+        }
+        // FIXME support THE_REQUEST, which also needs query params
+        // FIXME support SSL_ prefixed headers by parsing req.getAttribute("javax.servlet.request.X509Certificate")
+        throw new ExecutionException(null);
     }
 
     // to be wrapped using jythonlib so it looks like a dict
@@ -129,8 +218,10 @@ public class RequestBridge {
 
     Iterable<String> settings() {
         return ImmutableList.copyOf(Iterators.concat(
-                Iterators.forArray(REQUEST_METHOD, SCRIPT_NAME, PATH_INFO), // FIXME add remaining keys
-                Iterators.forEnumeration(request.getHeaderNames())));
+                Iterators.forArray(
+                        WSGI_VERSION, WSGI_MULTITHREAD, WSGI_MULTIPROCESS, WSGI_RUN_ONCE, WSGI_INPUT,
+                        REQUEST_METHOD, SCRIPT_NAME, PATH_INFO), // FIXME add remaining keys
+                mapCGI.keySet().iterator()));
     }
 
     public void loadAll() {
@@ -161,7 +252,8 @@ public class RequestBridge {
                 if (value == Py.None) {
                     return null;
                 } else {
-                    return value.toString(); // FIXME decode from latin1 to unicode
+                    String s = value.toString();
+                    return codecs.PyUnicode_DecodeLatin1(s, s.length(), null);
                 }
             } catch (ExecutionException e) {
                 return null;
@@ -179,7 +271,7 @@ public class RequestBridge {
 
         public String getServletPath() {
             if (!bridge.changed.contains(PY_SCRIPT_NAME)) {
-                return bridge.request.getMethod();
+                return bridge.request.getServletPath();
             } else {
                 return intercept(PY_SCRIPT_NAME);
             }
@@ -187,30 +279,20 @@ public class RequestBridge {
 
         public String getPathInfo() {
             if (!bridge.changed.contains(PY_PATH_INFO)) {
-                return bridge.request.getMethod();
+                return bridge.request.getPathInfo();
             } else {
                 return intercept(PY_PATH_INFO);
             }
         }
 
+        // fill in additional methods from above
+        // also return HTTP_* headers that are set via getHeader, getHeaderNames;
+        // also support getDateHeader, getIntHeader helper methods
+        // getCookies should also work
+        // presumably we need to consider normalizing new HTTP_ headers, although we
+        // can retain existing names. Ahh, the complexity of it all!
 
     }
-
-//
-//        "PY_REQUEST_METHOD":  str(req.getMethod()),
-//                "PY_SCRIPT_NAME": str(req.getServletPath()),
-//                "PY_PATH_INFO": empty_string_if_none(req.getPathInfo()),
-//                "QUERY_STRING": empty_string_if_none(req.getQueryString()),  # per WSGI validation spec
-//        "CONTENT_TYPE": empty_string_if_none(req.getContentType()),
-//                "REMOTE_ADDR": str(req.getRemoteAddr()),
-//                "REMOTE_HOST": str(req.getRemoteHost()),
-//                "REMOTE_PORT": str(req.getRemotePort()),
-//                "SERVER_NAME": str(req.getLocalName()),
-//                "SERVER_PORT": str(req.getLocalPort()),
-//                "SERVER_PROTOCOL": str(req.getProtocol()),
-//                "wsgi.url_scheme": str(req.getScheme()),
-//                "wsgi.input": AdaptedInputStream(req.getInputStream())
-
 
     static class BridgeMap extends ForwardingConcurrentMap {
 
@@ -238,7 +320,7 @@ public class RequestBridge {
         public void clear() {
             System.err.println("Clearing changes");
             for (Object key : bridge.cache().asMap().keySet()) {
-                bridge.changed.add((PyObject)key);
+                bridge.changed.add((PyObject) key);
             }
             super.clear();
         }
@@ -251,12 +333,11 @@ public class RequestBridge {
             return bridge.cache().asMap().remove(key);
         }
 
+        // FIXME override putAll... any others?
+
         protected ConcurrentMap delegate() {
             return bridge.cache().asMap();
         }
-
-        // also override put, putAll, clear, remove; for now, let's just implement something that says we are recording this
-
 
         // probably do not have to override iterator remove, although I suppose if passed into Java this could cause issues;
         // presumably we can just override the Iterator in this case
@@ -274,6 +355,86 @@ public class RequestBridge {
             return bridge.cache().asMap().entrySet();
         }
 
+    }
+
+    static class AdaptedInputStream extends PyObject {
+
+        private final InputStream inputStream;
+
+        public AdaptedInputStream(HttpServletRequest request) throws IOException {
+            inputStream = request.getInputStream();
+        }
+
+ /*
+        def __init__(self, input_stream):
+        self.input_stream = input_stream
+
+    def _read_chunk(self, size):
+        # Read a chunk of data from input, or None
+        chunk = bytearray(size)
+        result = self.input_stream.read(chunk)
+        if result > 0:
+            if result < size:
+                chunk = buffer(chunk, 0, result)
+            return chunk
+        return None
+
+    def read(self, size=None):
+        if size is None:
+            chunks = []
+            while True:
+                chunk = self._read_chunk(8192)
+                if chunk is None:
+                    break
+                chunks.append(chunk)
+            return "".join((str(chunk) for chunk in chunks))
+        else:
+            chunk = self._read_chunk(size)
+            if chunk is None:
+                return ""
+            else:
+                return str(chunk)
+
+    def readline(self, size=None):
+        if size is not None:
+            chunk = bytearray(size)
+            result = self.input_stream.readLine(chunk, 0, size)
+            if result == -1:
+                return ""
+            else:
+                return str(buffer(chunk, 0, result))
+        else:
+            chunks = []
+            while True:
+                # just assume relatively long lines, although there's
+                # a probably a better heuristic amount to allocate
+                chunk = bytearray(512)
+                result = self.input_stream.readLine(chunk, 0, 512)
+                if result == -1:
+                    break
+                chunks.append(chunk)
+                if result < 512 or chunk[511] == "\n":
+                    break
+            return "".join((str(chunk) for chunk in chunks))
+
+    def readlines(self, hint=None):
+        # According to WSGI spec, can just ignore hint, so this will
+        # suffice
+        return [self.readline()]
+
+    def next(self):
+        line = self.readline()
+        if line is "":
+            raise StopIteration
+        else:
+            return line
+
+    __next__ = next   # a nod to Python 3
+
+    def __iter__(self):
+        return self
+
+     */
     }
 
 }
