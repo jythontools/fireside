@@ -94,15 +94,21 @@ class WSGIBase(object):
             raise Exception("wsgi.handler not configured properly", application_name)
         module_name = ".".join(parts[:-1])
         module = __import__(module_name)
-        self.application = getattr(module, parts[-1])
+        application = getattr(module, parts[-1])
+        if self.filter:
+            self.application = application(NullApp())
+        else:
+            self.application = application
         self.err_log = AdaptedErrLog(self)
 
     def get_bridge(self, req):
         return RequestBridge(req, self.err_log, AdaptedInputStream(req.getInputStream()))
 
     def do_wsgi_call(self, call):
-        # refactor - the write loop needs to go in WSGICall
+        print >> sys.stderr, "About to make call WSGI app=%s, call=%s, filter=%s" % (self.application, call, self.filter)
         result = self.application(call.environ, call.start_response)
+
+        print >> sys.stderr, "result=%s" % (result,)
         try:
             for data in result:
                 if data:    # don't send headers until body appears
@@ -112,6 +118,13 @@ class WSGIBase(object):
         finally:
             if hasattr(result, "close"):
                 result.close()
+
+
+class NullApp(object):
+
+    def __call__(self, environ, start_response):
+        # FIXME this needs to pull data through!
+        pass
 
 
 class AdaptedInputStream(object):
