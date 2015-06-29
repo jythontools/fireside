@@ -1,5 +1,9 @@
-// FIXME we may have an issue with concurrent usage. presumably such usage should be sequenced via a mutex of some kind,
-// so it's just a question of ensuring tracking structures are not corrupted
+// FIXME audit for any concurrency issues. It seems highly likely that the
+// invalidation implied by the changed dict is robust, but need to verify
+// via scenario analysis.
+// However, current structures should be resilient against corruption.
+
+// FIXME replace commented-out prints with appropriate logging, or remove
 
 package org.python.tools.fireside;
 
@@ -171,7 +175,7 @@ public class RequestBridge {
             // problem with CGI/WSGI naming. Also I would assume that real usage of HTTP headers
             // are not going to do that.
             //
-            // Regardless, we preserve the ordering of entries via the LHM.
+            // Regardless, we preserve the ordering of entries via the LinkedHashMap.
             String cgiName = "HTTP_" + name.replace('-', '_').toUpperCase();
             mapping.put(cgiName, name);
         }
@@ -298,6 +302,7 @@ public class RequestBridge {
             }
         }
 
+        // FIXME
         // fill in additional methods from above
         // also return HTTP_* headers that are set via getHeader, getHeaderNames;
         // also support getDateHeader, getIntHeader helper methods
@@ -352,6 +357,7 @@ public class RequestBridge {
             return bridge.cache().asMap();
         }
 
+        // FIXME
         // probably do not have to override iterator remove, although I suppose if passed into Java this could cause issues;
         // presumably we can just override the Iterator in this case
 
