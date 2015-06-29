@@ -123,9 +123,9 @@ public class RequestBridge {
                             case REMOTE_PORT:
                                 return Py.newString(String.valueOf(request.getRemotePort()));
                             case SERVER_NAME:
-                                return latin1(request.getServerName());
+                                return latin1(request.getLocalName());
                             case SERVER_PORT:
-                                return Py.newString(String.valueOf(request.getServerPort()));
+                                return Py.newString(String.valueOf(request.getLocalPort()));
                             case SERVER_PROTOCOL:
                                 return latin1(request.getProtocol());
                             case CONTENT_LENGTH:
@@ -230,8 +230,11 @@ public class RequestBridge {
                 Iterators.forArray(
                         WSGI_VERSION, WSGI_MULTITHREAD, WSGI_MULTIPROCESS, WSGI_RUN_ONCE,
                         WSGI_ERRORS, WSGI_INPUT, WSGI_URL_SCHEME,
-                        REQUEST_METHOD, SCRIPT_NAME, PATH_INFO), // FIXME add remaining keys
+                        REQUEST_METHOD, SCRIPT_NAME, PATH_INFO, QUERY_STRING, CONTENT_TYPE,
+                        REMOTE_ADDR, REMOTE_HOST, REMOTE_PORT,
+                        SERVER_NAME, SERVER_PORT, SERVER_PROTOCOL), // FIXME add remaining keys
                 mapCGI.keySet().iterator()));
+        // FIXME should add CONTENT_LENGTH only if getContentLength() != -1
     }
 
     public void loadAll() {
