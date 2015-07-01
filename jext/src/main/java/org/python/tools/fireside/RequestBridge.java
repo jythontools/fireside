@@ -87,10 +87,10 @@ public class RequestBridge {
                 new CacheLoader<PyObject, PyObject>() {
                     public PyObject load(PyObject key) throws ExecutionException {
                         if (changed.contains(key)) {
-//                            System.err.println("Do not load key=" + key);
+                            System.err.println("Do not load key=" + key);
                             throw new ExecutionException(null);
                         }
-//                        System.err.println("Loading key=" + key);
+                        System.err.println("Loading key=" + key);
                         // Unwrap so we can take advantage of Java 7's support for
                         // efficient string switch, via hashing. Effectively the below switch
                         // is a hash table.
@@ -242,11 +242,11 @@ public class RequestBridge {
     }
 
     public void loadAll() {
-//        System.err.println("loadAll changed=" + changed);
+        System.err.println("loadAll changed=" + changed);
         for (String k : settings()) {
             try {
                 if (!changed.contains(Py.newString(k))) {
-//                    System.err.println("getting key=" + k);
+                    System.err.println("getting key=" + k);
                     cache.get(Py.newString(k));
                 }
             } catch (ExecutionException e) {
