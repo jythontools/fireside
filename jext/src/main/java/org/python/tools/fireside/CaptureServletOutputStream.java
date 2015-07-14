@@ -84,16 +84,12 @@ public class CaptureServletOutputStream extends ServletOutputStream implements I
 
     @Override
     public PyString next() {
+        if (closed) {
+            throw Py.StopIteration("");
+        }
         PyString chunk = chunks.pollFirst();
         if (chunk == null) {
-            if (closed) {
-                // hmmm, I would expect the adaptation would have done this for us
-                // FIXME bug in Jython! wrap Iterator such that NoSuchElementException -> StopIteration
-                throw Py.StopIteration("");
-            } else {
-                // otherwise per WSGI spec, busy wait in iteration loop by returning ""
-                return Py.EmptyString;
-            }
+            return Py.EmptyString;
         } else {
             return chunk;
         }

@@ -1,6 +1,7 @@
 # Fireside - Blazing fast WSGI Servlet bridge.
 #
-# Named after a hot whiskey drink often made with coffee.
+# Named after a hot whiskey drink often made with coffee. So this
+# means you can have some WSGI with your Java.
 
 """FIXME
 Implement the following
@@ -10,7 +11,8 @@ If a call to len(iterable) succeeds, the server must be able to rely on the resu
 import array
 import sys
 
-from org.python.tools.fireside import RequestBridge
+from jythonlib import dict_builder
+from org.python.tools.fireside import RequestBridge, CaptureHttpServletResponse
 
 
 # FIXME perform additional verifications; see
@@ -19,13 +21,17 @@ from org.python.tools.fireside import RequestBridge
 
 class WSGICall(object):
 
-    def __init__(self, environ, req, resp, before_write_callback=None):
+    def __init__(self, environ, req, resp):
         self.environ = environ
         self.req = req
         self.resp = resp
-        self.before_write_callback = before_write_callback
         self.headers_set = []
         self.headers_sent = []
+        self.wrapped_resp = None
+
+    def __repr__(self):
+        return "WSGICall(id=%s, environ=%s, req=%s, resp=%s, set=%s, sent=%s, wrapped_resp=%s)" % (
+            id(self), self.environ, self.req, self.resp, self.headers_set, self.headers_sent, self.wrapped_resp)
 
     def set_status(self, status):
         # convert from such usage as "404 Not Found"
@@ -54,7 +60,6 @@ class WSGICall(object):
         out.flush()
 
     def start_response(self, status, response_headers, exc_info=None):
-        # possible location for write_callback
         if exc_info:
             try:
                 if self.headers_sent:
@@ -76,36 +81,32 @@ class WSGICall(object):
         # WSGI servers do here;
         # http://waitress.readthedocs.org/en/latest/ might be a
         # good choice
-
-        if self.before_write_callback:
-            self.before_write_callback()
-
         return self.write
 
 
-class WSGIBase(object):
+def get_application(config):
+    # FIXME add more error checking on application setup
+    application_name = config.getInitParameter("wsgi.handler")
+    parts = application_name.split(".")
+    if len(parts) < 2 or not all(parts):
+        # FIXME better exception class
+        raise Exception("wsgi.handler not configured properly", application_name)
+    module_name = ".".join(parts[:-1])
+    module = __import__(module_name)
+    return getattr(module, parts[-1])
+
+
+class ServletBase(object):
 
     def do_init(self, config):
-        # FIXME add more error checking on application setup
-        application_name = config.getInitParameter("wsgi.handler")
-        parts = application_name.split(".")
-        if len(parts) < 2 or not all(parts):
-            # FIXME better exception class
-            raise Exception("wsgi.handler not configured properly", application_name)
-        module_name = ".".join(parts[:-1])
-        module = __import__(module_name)
-        application = getattr(module, parts[-1])
-        if self.filter:
-            self.application = application(NullApp())
-        else:
-            self.application = application
+        self.application = get_application(config)
         self.err_log = AdaptedErrLog(self)
 
     def get_bridge(self, req):
         return RequestBridge(req, self.err_log, AdaptedInputStream(req.getInputStream()))
 
     def do_wsgi_call(self, call):
-        print >> sys.stderr, "About to make call WSGI app=%s, call=%s, filter=%s" % (self.application, call, self.filter)
+        print >> sys.stderr, "About to make call WSGI app=%s" % (self.application,)
         result = self.application(call.environ, call.start_response)
 
         print >> sys.stderr, "result=%s" % (result,)
@@ -118,13 +119,51 @@ class WSGIBase(object):
         finally:
             if hasattr(result, "close"):
                 result.close()
+            
 
+class FilterBase(object):
 
-class NullApp(object):
+    def do_init(self, config):
+        self.application = get_application(config)
+        self.err_log = AdaptedErrLog(self)
 
-    def __call__(self, environ, start_response):
-        # FIXME this needs to pull data through!
-        pass
+    def filter_wsgi_call(self, req, resp, chain):
+        bridge = RequestBridge(req, self.err_log, AdaptedInputStream(req.getInputStream()))
+        environ = dict_builder(bridge.asMap)()
+        # Can only set up the actual wrapped response once the filter coroutine is set up
+        wrapped_req = bridge.asWrapper()
+        wrapped_resp = None
+        call = WSGICall(environ, req, resp)
+
+        def setup_puller():
+            (yield)
+
+            def null_app(environ, start_response):
+                response_headers = [('Content-type', 'text/plain')]
+                start_response("203 BAZZED", response_headers)
+                return iter(call.wrapped_resp.getOutputStream())
+
+            wsgi_filter = self.application(null_app)
+            result = wsgi_filter(call.environ, call.start_response)
+            it = iter(result)
+            while(True):
+                try:
+                    data = (yield)
+                    filtered = str(next(it))
+                    print >> sys.stderr, "%r -> %r" % (data, filtered)
+                    print >> sys.stderr, "call %r" % (call,)
+                    call.write(filtered)
+                except StopIteration:
+                    break
+            if not call.headers_sent:
+                call.write("")   # send headers now if body was empty
+
+        puller = setup_puller()
+        # fill in the wrapping servlet response
+        call.wrapped_resp = CaptureHttpServletResponse(resp, puller.send)
+        puller.send(None)  # advance the coroutine to before filtering
+        puller.send(None)  # advance one more time to after sending the response
+        chain.doFilter(wrapped_req, call.wrapped_resp)
 
 
 class AdaptedInputStream(object):
