@@ -87,6 +87,18 @@ class AdaptedErrLog(object):
 # probably need to turn on proxy debugging to see what is going on
 #mock = Mock(spec=HttpServletRequest)
 
+def test_content_length():
+    mock = HttpServletRequestMock()
+    mock.getContentLength = Mock(return_value=-1)
+    assert_is_instance(mock, HttpServletRequest)
+
+    bridge = RequestBridge(mock, AdaptedInputStream(), AdaptedErrLog())
+    bridge_map = dict_builder(bridge.asMap)()
+    wrapper = bridge.asWrapper()
+    
+    assert_not_in("CONTENT_LENGTH", bridge_map)
+
+
 def test_request_bridge():
     # test generation requires correspondence between WSGI keys and request method names
     yield check_request_bridge, "getMethod",      "REQUEST_METHOD",  "FAKEGET"
@@ -94,9 +106,9 @@ def test_request_bridge():
     yield check_request_bridge, "getContentType", "CONTENT_TYPE",    "text/html"
     yield check_request_bridge, "getRemoteAddr",  "REMOTE_ADDR",     "127.0.0.1"
     yield check_request_bridge, "getRemoteHost",  "REMOTE_HOST",     "client.example.com"
-    yield check_request_bridge, "getRemotePort",  "REMOTE_PORT",     9876
+    yield check_request_bridge, "getRemotePort",  "REMOTE_PORT",     4567
     yield check_request_bridge, "getLocalName",   "SERVER_NAME",     "service.example.com"
-    yield check_request_bridge, "getLocalPort",   "SERVER_PORT",     80
+    yield check_request_bridge, "getLocalPort",   "SERVER_PORT",     443
     yield check_request_bridge, "getProtocol",    "SERVER_PROTOCOL", "HTTP/1.1"
     yield check_request_bridge, "getScheme",      "wsgi.url_scheme", "http"
     yield check_request_bridge, "getPathInfo",    "PATH_INFO",       "foo&baz"
@@ -110,6 +122,13 @@ def test_request_bridge():
     #     print "Getting headers for", name
     #     return Iterators.asEnumeration(Iterators.forArray(["abc", "xyz"]))
     
+
+# let's define a type constructor that fills in and returns appropriate values (maybe "some-value", 47, or maybe None);
+# note that we need to dispatch on the type! could do this by hand of course, but it seems like this generally useful;
+# 
+class XHttpServletRequestMock(HttpServletRequest):
+    pass
+
 
 def check_request_bridge(method, key, value):
     mock = HttpServletRequestMock()
@@ -127,7 +146,7 @@ def check_request_bridge(method, key, value):
     # Deleting a key works, and is seen in the request wrapper
     del bridge_map[key]
     assert_not_in(key, bridge_map)
-    assert_equal(getattr(wrapper, method)(), None)
+    assert_equal(getattr(wrapper, method)(), None if isinstance(value, str) else -1)
     # But mock servlet request is not changed
     assert_equal(getattr(mock, method)(), value)
 

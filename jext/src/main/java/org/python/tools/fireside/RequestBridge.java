@@ -7,9 +7,12 @@
 
 package org.python.tools.fireside;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
@@ -213,7 +216,7 @@ public class RequestBridge {
         }
         // FIXME support THE_REQUEST, which also needs query params
         // FIXME support SSL_ prefixed headers by parsing req.getAttribute("javax.servlet.request.X509Certificate")
-        // FIXME need to add both types of headers to
+        // FIXME need to add both types of headers to getSettings()
         throw new ExecutionException(null);
     }
 
@@ -230,21 +233,23 @@ public class RequestBridge {
         return cache;
     }
 
-    Iterable<String> settings() {
-        return ImmutableList.copyOf(Iterators.concat(
-                Iterators.forArray(
-                        WSGI_VERSION, WSGI_MULTITHREAD, WSGI_MULTIPROCESS, WSGI_RUN_ONCE,
+    private Iterable<String> getSettings() {
+        final List<String> settings = new ArrayList<>(
+                Arrays.asList(WSGI_VERSION, WSGI_MULTITHREAD, WSGI_MULTIPROCESS, WSGI_RUN_ONCE,
                         WSGI_ERRORS, WSGI_INPUT, WSGI_URL_SCHEME,
                         REQUEST_METHOD, SCRIPT_NAME, PATH_INFO, QUERY_STRING, CONTENT_TYPE,
                         REMOTE_ADDR, REMOTE_HOST, REMOTE_PORT,
-                        SERVER_NAME, SERVER_PORT, SERVER_PROTOCOL), // FIXME add remaining keys
-                mapCGI.keySet().iterator()));
-        // FIXME should add CONTENT_LENGTH only if getContentLength() != -1
+                        SERVER_NAME, SERVER_PORT, SERVER_PROTOCOL));
+        if (request.getContentLength() != -1) {
+            settings.add(CONTENT_LENGTH);
+        }
+        settings.addAll(mapCGI.keySet());
+        return settings;
     }
 
     public void loadAll() {
         System.err.println("loadAll changed=" + changed);
-        for (String k : settings()) {
+        for (String k : getSettings()) {
             try {
                 if (!changed.contains(Py.newString(k))) {
                     System.err.println("getting key=" + k);
