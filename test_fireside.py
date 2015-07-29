@@ -2,9 +2,7 @@
 # verify cases like read-after-delete
 # need to test all methods, but let's make that data-driven, as opposed to being tedious
 
-# also, let's use a standard interesting test runner. nose is probably a good choice
-
-from nose.tools import assert_raises
+from nose.tools import assert_equal, assert_in, assert_is_instance, assert_not_in, assert_raises
 from mock import Mock
 
 from javax.servlet import ServletInputStream
@@ -27,11 +25,13 @@ class HttpServletRequestMock(HttpServletRequest):
 
     # maybe use 3-arg type() to build this mock? then again, below doesn't seem so bad
 
+    # note that we should be able to record that loadAll in fact touches each of these methods! FIXME
+
     def getInputStream(self):
         return BogusServletInputStream()
 
-    def getMethod(self):
-        return "GET"
+    # def getMethod(self):
+    #     return "GET"
 
     def getQueryString(self):
         return "?q=foo"
@@ -83,39 +83,70 @@ class AdaptedErrLog(object):
     pass
 
 
-
 # NEED TO FIGURE OUT how to use mock to make this be a true subclass, with proxy generated;
 # probably need to turn on proxy debugging to see what is going on
 #mock = Mock(spec=HttpServletRequest)
 
 def test_request_bridge():
+    # test generation requires correspondence between WSGI keys and request method names
+    yield check_request_bridge, "getMethod",      "REQUEST_METHOD",  "FAKEGET"
+    yield check_request_bridge, "getQueryString", "QUERY_STRING",    "?q=foo"
+    yield check_request_bridge, "getContentType", "CONTENT_TYPE",    "text/html"
+    yield check_request_bridge, "getRemoteAddr",  "REMOTE_ADDR",     "127.0.0.1"
+    yield check_request_bridge, "getRemoteHost",  "REMOTE_HOST",     "client.example.com"
+    yield check_request_bridge, "getRemotePort",  "REMOTE_PORT",     9876
+    yield check_request_bridge, "getLocalName",   "SERVER_NAME",     "service.example.com"
+    yield check_request_bridge, "getLocalPort",   "SERVER_PORT",     80
+    yield check_request_bridge, "getProtocol",    "SERVER_PROTOCOL", "HTTP/1.1"
+    yield check_request_bridge, "getScheme",      "wsgi.url_scheme", "http"
+    yield check_request_bridge, "getPathInfo",    "PATH_INFO",       "foo&baz"
+    yield check_request_bridge, "getServletPath", "SCRIPT_NAME",     "/foobar"
+    
+    # checking headers is a bit different FIXME
+    #yield check_request_bridge, "getHeaderNames", 
+    #     return Iterators.asEnumeration(Iterators.forArray(["Set-Baz", "Read-Foo", "BAR"]))
+
+    # def getHeaders(self, name):
+    #     print "Getting headers for", name
+    #     return Iterators.asEnumeration(Iterators.forArray(["abc", "xyz"]))
+    
+
+def check_request_bridge(method, key, value):
     mock = HttpServletRequestMock()
-    mock.getMethod = Mock(return_value="GET")
-
-    assert isinstance(mock, HttpServletRequest)
-
+    assert_is_instance(mock, HttpServletRequest)
     bridge = RequestBridge(mock, AdaptedInputStream(), AdaptedErrLog())
     bridge_map = dict_builder(bridge.asMap)()
     wrapper = bridge.asWrapper()
-    #print type(bridge_map)
-    #print bridge_map["REQUEST_METHOD"]
 
-    #del bridge_map["REQUEST_METHOD"]
-    #print bridge_map
+    # Setup the mock servlet request with a value
+    setattr(mock, method, Mock(return_value=value))
+    # Verify this value is visible
+    assert_equal(getattr(mock, method)(), value)
+    assert_equal(bridge_map[key], value if isinstance(value, str) else str(value))
+    assert_equal(getattr(wrapper, method)(), value)
+    # Deleting a key works, and is seen in the request wrapper
+    del bridge_map[key]
+    assert_not_in(key, bridge_map)
+    assert_equal(getattr(wrapper, method)(), None)
+    # But mock servlet request is not changed
+    assert_equal(getattr(mock, method)(), value)
+
+    # FIXME add tests with respect to other dictionary methods
+    # that bridge_map should support, including views
 
 
 def test_capture_output_stream():
 
     def assert_chunk_is_str(chunk):
-        assert isinstance(chunk, str)
+        assert_is_instance(chunk, str)
 
-    c = CaptureServletOutputStream(assert_chunk_is_str)
-    c.write(bytearray("foo"))
-    assert next(c) == "foo"
-    assert next(c) == ""
-    assert next(c) == ""
-    c.write(bytearray("foo2"))
-    assert next(c) == "foo2"
-    assert next(c) == ""
-    c.close()
-    assert_raises(StopIteration, next, c)
+    stream = CaptureServletOutputStream(assert_chunk_is_str)
+    stream.write(bytearray("foo"))
+    assert next(stream) == "foo"
+    assert next(stream) == ""
+    assert next(stream) == ""
+    stream.write(bytearray("foo2"))
+    assert next(stream) == "foo2"
+    assert next(stream) == ""
+    stream.close()
+    assert_raises(StopIteration, next, stream)

@@ -87,10 +87,10 @@ public class RequestBridge {
                 new CacheLoader<PyObject, PyObject>() {
                     public PyObject load(PyObject key) throws ExecutionException {
                         if (changed.contains(key)) {
-                            System.err.println("Do not load key=" + key);
+//                            System.err.println("Do not load key=" + key);
                             throw new ExecutionException(null);
                         }
-                        System.err.println("Loading key=" + key);
+//                        System.err.println("Loading key=" + key);
                         // Unwrap so we can take advantage of Java 7's support for
                         // efficient string switch, via hashing. Effectively the below switch
                         // is a hash table.
@@ -213,6 +213,7 @@ public class RequestBridge {
         }
         // FIXME support THE_REQUEST, which also needs query params
         // FIXME support SSL_ prefixed headers by parsing req.getAttribute("javax.servlet.request.X509Certificate")
+        // FIXME need to add both types of headers to
         throw new ExecutionException(null);
     }
 
@@ -277,12 +278,32 @@ public class RequestBridge {
             }
         }
 
+        public int intercept_int(PyString key) {
+            try {
+                PyObject value = (PyObject) bridge.cache().get(key);
+                if (value == Py.None) {
+                    return -1;
+                } else {
+                    return value.asInt();
+                }
+            } catch (ExecutionException e) {
+                return -1;
+            }
+        }
+
+        public String getScheme() {
+            if (!bridge.changed.contains(PY_WSGI_URL_SCHEME)) {
+                return bridge.request.getScheme();
+            } else {
+                return intercept(PY_WSGI_URL_SCHEME);
+            }
+        }
+
         public String getMethod() {
             if (!bridge.changed.contains(PY_REQUEST_METHOD)) {
                 return bridge.request.getMethod();
             } else {
                 return intercept(PY_REQUEST_METHOD);
-
             }
         }
 
@@ -299,6 +320,78 @@ public class RequestBridge {
                 return bridge.request.getPathInfo();
             } else {
                 return intercept(PY_PATH_INFO);
+            }
+        }
+
+        public String getQueryString() {
+            if (!bridge.changed.contains(PY_QUERY_STRING)) {
+                return bridge.request.getQueryString();
+            } else {
+                return intercept(PY_QUERY_STRING);
+            }
+        }
+
+        public String getContentType() {
+            if (!bridge.changed.contains(PY_CONTENT_TYPE)) {
+                return bridge.request.getContentType();
+            } else {
+                return intercept(PY_CONTENT_TYPE);
+            }
+        }
+
+        public String getRemoteAddr() {
+            if (!bridge.changed.contains(PY_REMOTE_ADDR)) {
+                return bridge.request.getRemoteAddr();
+            } else {
+                return intercept(PY_REMOTE_ADDR);
+            }
+        }
+
+        public String getRemoteHost() {
+            if (!bridge.changed.contains(PY_REMOTE_HOST)) {
+                return bridge.request.getRemoteHost();
+            } else {
+                return intercept(PY_REMOTE_HOST);
+            }
+        }
+
+        public int getRemotePort() {
+            if (!bridge.changed.contains(PY_REMOTE_PORT)) {
+                return bridge.request.getRemotePort();
+            } else {
+                return intercept_int(PY_REMOTE_PORT);
+            }
+        }
+
+        public String getLocalName() {
+            if (!bridge.changed.contains(PY_SERVER_NAME)) {
+                return bridge.request.getLocalName();
+            } else {
+                return intercept(PY_SERVER_NAME);
+            }
+        }
+
+        public int getLocalPort() {
+            if (!bridge.changed.contains(PY_SERVER_PORT)) {
+                return bridge.request.getServerPort();
+            } else {
+                return intercept_int(PY_SERVER_PORT);
+            }
+        }
+
+        public String getProtocol() {
+            if (!bridge.changed.contains(PY_SERVER_PROTOCOL)) {
+                return bridge.request.getProtocol();
+            } else {
+                return intercept(PY_SERVER_PROTOCOL);
+            }
+        }
+
+        public int getContentLength() {
+            if (!bridge.changed.contains(PY_CONTENT_LENGTH)) {
+                return bridge.request.getContentLength();
+            } else {
+                return intercept_int(PY_CONTENT_LENGTH);
             }
         }
 
