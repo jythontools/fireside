@@ -31,8 +31,6 @@ import org.python.google.common.cache.CacheBuilder;
 import org.python.google.common.cache.CacheLoader;
 import org.python.google.common.cache.LoadingCache;
 import org.python.google.common.collect.ForwardingConcurrentMap;
-import org.python.google.common.collect.ImmutableList;
-import org.python.google.common.collect.Iterators;
 
 
 public class RequestBridge {
@@ -378,7 +376,7 @@ public class RequestBridge {
 
         public int getLocalPort() {
             if (!bridge.changed.contains(PY_SERVER_PORT)) {
-                return bridge.request.getServerPort();
+                return bridge.request.getLocalPort();
             } else {
                 return intercept_int(PY_SERVER_PORT);
             }

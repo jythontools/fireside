@@ -5,6 +5,7 @@ import org.python.core.PyObject;
 import org.python.core.PyString;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -15,10 +16,18 @@ import javax.servlet.WriteListener;
 public class CaptureServletOutputStream extends ServletOutputStream implements Iterator<PyString> {
     private volatile boolean closed = false;
     private final Deque<PyString> chunks = new ConcurrentLinkedDeque<>();
-    private final PyObject callback;
+    private PyObject callback;
 
     public CaptureServletOutputStream(PyObject callback) {
         this.callback = callback;
+    }
+
+    public void setCallback(PyObject callback) {
+        this.callback = callback;
+    }
+
+    public Iterator<PyString> getChunks() {
+        return chunks.iterator();
     }
 
     @Override
@@ -33,6 +42,7 @@ public class CaptureServletOutputStream extends ServletOutputStream implements I
     }
 
     private void write(PyString s) throws IOException {
+        System.err.println("append chunk=" + s);
         chunks.addLast(s);
         callback.__call__(s);
     }
@@ -89,6 +99,8 @@ public class CaptureServletOutputStream extends ServletOutputStream implements I
         }
         PyString chunk = chunks.pollFirst();
         if (chunk == null) {
+//            System.err.println("CaptureServletOutputStream has no data, returning empty string");
+//            throw Py.StopIteration("");
             return Py.EmptyString;
         } else {
             return chunk;

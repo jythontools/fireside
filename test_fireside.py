@@ -157,7 +157,8 @@ def check_request_bridge(method, key, value):
 def test_capture_output_stream():
 
     def assert_chunk_is_str(chunk):
-        assert_is_instance(chunk, str)
+        if chunk is not None:
+            assert_is_instance(chunk, str)
 
     stream = CaptureServletOutputStream(assert_chunk_is_str)
     stream.write(bytearray("foo"))

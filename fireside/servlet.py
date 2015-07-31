@@ -4,11 +4,15 @@
 # means you can have some WSGI with your Java.
 
 """FIXME
-Implement the following
+Implement the following from PEP 3333
+
 If a call to len(iterable) succeeds, the server must be able to rely on the result being accurate. That is, if the iterable returned by the application provides a working __len__() method, it must return an accurate result. (See the Handling the Content-Length Header section for information on how this would normally be used.)
+
+And, if the server and client both support HTTP/1.1 "chunked encoding" [3] , then the server may use chunked encoding to send a chunk for each write() call or bytestring yielded by the iterable, thus generating a Content-Length header for each chunk. This allows the server to keep the client connection alive, if it wishes to do so. Note that the server must comply fully with RFC 2616 when doing this, or else fall back to one of the other strategies for dealing with the absence of Content-Length .
 """
 
 import array
+import itertools
 import sys
 
 from jythonlib import dict_builder
@@ -56,8 +60,13 @@ class WSGICall(object):
                  self.resp.addHeader(name, value.encode("latin1"))
 
         out = self.resp.getOutputStream()
+        print >> sys.stderr, "Writing data %r to output stream" % (data,)
         out.write(array.array("b", data))
         out.flush()
+
+    def close(self):
+        print >> sys.stderr, "Would close output stream... FIXME"
+        self.resp.getOutputStream().close()
 
     def start_response(self, status, response_headers, exc_info=None):
         if exc_info:
@@ -113,11 +122,16 @@ class ServletBase(object):
         try:
             for data in result:
                 if data:    # don't send headers until body appears
+                    print >> sys.stderr, "Writing data %r" % (data,)
                     call.write(data)
             if not call.headers_sent:
                 call.write("")   # send headers now if body was empty
         finally:
+            #print >> sys.stderr, "Closing call %s" % (call,)
+            #call.close()
+            # FIXME restore, but currently closing here causes an issue when part of a filter chain
             if hasattr(result, "close"):
+                print >> sys.stderr, "Closing result %s" % (result,)
                 result.close()
             
 
@@ -132,24 +146,68 @@ class FilterBase(object):
         environ = dict_builder(bridge.asMap)()
         # Can only set up the actual wrapped response once the filter coroutine is set up
         wrapped_req = bridge.asWrapper()
-        wrapped_resp = None
         call = WSGICall(environ, req, resp)
+
+        progress = []
+        call_filter = None
 
         def setup_puller():
             (yield)
 
             def null_app(environ, start_response):
+                print "null_app environ=%s start_response=%s" % (environ, start_response)
+                #for name in call.wrapped_resp.getHeaders():
+                #    ...
                 response_headers = [('Content-type', 'text/plain')]
-                start_response("203 BAZZED", response_headers)
-                return iter(call.wrapped_resp.getOutputStream())
+                # status = call.wrapped_resp.getStatus()
+                print >> sys.stderr, "null_app calling start_response"
+                start_response("200 OK", response_headers)
+                print >> sys.stderr, "null_app returning iter on output stream"
+
+                output_stream = call.wrapped_resp.getOutputStream()
+                for i, chunk in enumerate(output_stream):
+                    print >> sys.stderr, "Got this chunk %d %r (%r)" % (i, chunk, progress)
+
+                    # check if stalled (is there no progress in the below while loop?)
+                    # if stalled, we have to wait until the filter chain is complete before
+                    # we can return another chunk
+
+                    yield chunk
+
+                    if not progress:
+                        print >> sys.stderr, "No progress being made, move the call to the filter chain to here"
+                        progress[:] = [False]  # need three states! FIXME
+
+                        def f(s):
+                            print "null_app stalled value %r" % (s,)
+
+                        output_stream.callback = f
+                        call_filter()
+                        print >> sys.stderr, "Filter chain completed"
+                        for chunk in output_stream.getChunks():
+                            yield chunk
+                        return
+
+                    if i > 100:  # FIXME remove this debugging stopgap (obviously)
+                        print >> sys.stderr, "Stopping, obviously we are broken!!!!!"
+                        break
+                #return ["this is the fake response text"]
 
             wsgi_filter = self.application(null_app)
             result = wsgi_filter(call.environ, call.start_response)
+            print >> sys.stderr, "got result from wsgi_filter %s" % (result,)
             it = iter(result)
-            while(True):
+            print >> sys.stderr, "got iterator %s" % (it,)
+            while True:
                 try:
-                    data = (yield)
-                    filtered = str(next(it))
+                    print >> sys.stderr, "waiting on yield"
+                    if not progress or progress[0] != False:
+                        data = (yield)
+                    else:
+                        data = None
+                    print >> sys.stderr, "completed yield, waiting on next of %s" % (it,)
+                    filtered = next(it)
+                    progress[:] = [True]
                     print >> sys.stderr, "%r -> %r" % (data, filtered)
                     print >> sys.stderr, "call %r" % (call,)
                     call.write(filtered)
@@ -161,9 +219,17 @@ class FilterBase(object):
         puller = setup_puller()
         # fill in the wrapping servlet response
         call.wrapped_resp = CaptureHttpServletResponse(resp, puller.send)
+        call_filter = lambda: chain.doFilter(wrapped_req, call.wrapped_resp)
         puller.send(None)  # advance the coroutine to before filtering
         puller.send(None)  # advance one more time to after sending the response
-        chain.doFilter(wrapped_req, call.wrapped_resp)
+        if not progress or progress[0] != False:
+            print >> sys.stderr, "Calling filter"
+            call_filter()
+        else:
+            print >> sys.stderr, "Not calling filter, should be done in null_app"
+
+        print >> sys.stderr, "Closing puller"
+        puller.close() # put in a try-finally context
 
 
 class AdaptedInputStream(object):
