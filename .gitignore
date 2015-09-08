@@ -41,3 +41,7 @@ nosetests.xml
 
 # Emacs
 *~
+
+*.diff
+*/.idea/**
+*/.gradle/**

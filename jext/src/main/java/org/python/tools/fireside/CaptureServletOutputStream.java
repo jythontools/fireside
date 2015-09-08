@@ -42,7 +42,6 @@ public class CaptureServletOutputStream extends ServletOutputStream implements I
     }
 
     private void write(PyString s) throws IOException {
-        System.err.println("append chunk=" + s);
         chunks.addLast(s);
         callback.__call__(s);
     }
@@ -99,8 +98,6 @@ public class CaptureServletOutputStream extends ServletOutputStream implements I
         }
         PyString chunk = chunks.pollFirst();
         if (chunk == null) {
-//            System.err.println("CaptureServletOutputStream has no data, returning empty string");
-//            throw Py.StopIteration("");
             return Py.EmptyString;
         } else {
             return chunk;
