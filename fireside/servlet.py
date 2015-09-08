@@ -9,6 +9,8 @@ Implement the following from PEP 3333
 If a call to len(iterable) succeeds, the server must be able to rely on the result being accurate. That is, if the iterable returned by the application provides a working __len__() method, it must return an accurate result. (See the Handling the Content-Length Header section for information on how this would normally be used.)
 
 And, if the server and client both support HTTP/1.1 "chunked encoding" [3] , then the server may use chunked encoding to send a chunk for each write() call or bytestring yielded by the iterable, thus generating a Content-Length header for each chunk. This allows the server to keep the client connection alive, if it wishes to do so. Note that the server must comply fully with RFC 2616 when doing this, or else fall back to one of the other strategies for dealing with the absence of Content-Length .
+
+Also ensure that the connection is closed properly
 """
 
 import array
@@ -175,6 +177,11 @@ class FilterBase(object):
                     yield chunk
 
                     if not progress:
+                        # FIXME my reading of the PEP 3333 middleware contract is that
+                        # this variant is not required. However, WebOb -- and probably other
+                        # frameworks -- do not abide by incremental chunk processing, and instead
+                        # consume everything in the filter. Could potentially make this debug
+                        # logging, but it would happen on every such call of course.
                         print >> sys.stderr, "No progress being made, move the call to the filter chain to here"
                         progress[:] = [False]  # need three states! FIXME
 
@@ -189,6 +196,8 @@ class FilterBase(object):
                         return
 
                     if i > 100:  # FIXME remove this debugging stopgap (obviously)
+                        # FIXME it probably makes sense to log this however, since this
+                        # is violating the PEP 3333 middleware contract
                         print >> sys.stderr, "Stopping, obviously we are broken!!!!!"
                         break
                 #return ["this is the fake response text"]
@@ -219,7 +228,7 @@ class FilterBase(object):
         puller = setup_puller()
         # fill in the wrapping servlet response
         call.wrapped_resp = CaptureHttpServletResponse(resp, puller.send)
-        call_filter = lambda: chain.doFilter(wrapped_req, call.wrapped_resp)
+        call_filter = lambda: chain.doFilter(wrapped_req, call.wrapped_resp)  # FIXME maybe name "complete_filter_chain"?
         puller.send(None)  # advance the coroutine to before filtering
         puller.send(None)  # advance one more time to after sending the response
         if not progress or progress[0] != False:
