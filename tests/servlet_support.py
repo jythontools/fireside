@@ -5,12 +5,21 @@ from mock import Mock
 from jythonlib import dict_builder
 
 from javax.servlet import ServletConfig, ServletInputStream
-from javax.servlet.http import HttpServletRequest
+from javax.servlet.http import HttpServletResponse, HttpServletRequest
+
 from org.python.tools.fireside import RequestBridge, CaptureServletOutputStream
 from org.python.google.common.collect import Iterators
 
 
-class HttpServletRequestMock(HttpServletRequest):
+class ServletConfigMock(ServletConfig):
+    def __init__(self, params):
+        self.params = params   
+
+    def getInitParameter(self, name):
+        return self.params[name]
+
+
+class RequestMock(HttpServletRequest):
     # NB must define all methods OR we will get an unimplemented error upon a load all (!)
     # probably should make some aspects of this integration more robust!
 
@@ -67,6 +76,28 @@ class HttpServletRequestMock(HttpServletRequest):
     def getHeaders(self, name):
         print "Getting headers for", name
         return Iterators.asEnumeration(Iterators.forArray(["abc", "xyz"]))
+
+
+
+
+class ResponseMock(HttpServletResponse):
+
+    def __init__(self):
+        def assert_chunk_is_str(chunk):
+            if chunk is not None:
+                assert_is_instance(chunk, str)
+
+        self.stream = CaptureServletOutputStream(assert_chunk_is_str)
+
+    def getOutputStream(self):
+        return self.stream
+
+    def setStatus(self, code, msg):
+        print "status %s (%r)" % (code, msg)
+
+    def addHeader(self, name, header):
+        print "header %r=%r" % (name, header)
+
 
 
 # fill in the following mocks

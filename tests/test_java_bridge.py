@@ -5,11 +5,11 @@ from servlet_support import *
 # need to test all methods, but let's make that data-driven, as opposed to being tedious
 
 def test_content_length():
-    mock = HttpServletRequestMock()
-    mock.getContentLength = Mock(return_value=-1)
-    assert_is_instance(mock, HttpServletRequest)
+    req_mock = RequestMock()
+    req_mock.getContentLength = Mock(return_value=-1)
+    assert_is_instance(req_mock, HttpServletRequest)
 
-    bridge = RequestBridge(mock, AdaptedInputStream(), AdaptedErrLog())
+    bridge = RequestBridge(req_mock, AdaptedInputStream(), AdaptedErrLog())
     bridge_map = dict_builder(bridge.asMap)()
     wrapper = bridge.asWrapper()
     
@@ -41,16 +41,16 @@ def test_request_bridge():
     
 
 def check_request_bridge(method, key, value):
-    mock = HttpServletRequestMock()
-    assert_is_instance(mock, HttpServletRequest)
-    bridge = RequestBridge(mock, AdaptedInputStream(), AdaptedErrLog())
+    req_mock = RequestMock()
+    assert_is_instance(req_mock, HttpServletRequest)
+    bridge = RequestBridge(req_mock, AdaptedInputStream(), AdaptedErrLog())
     bridge_map = dict_builder(bridge.asMap)()
     wrapper = bridge.asWrapper()
 
     # Setup the mock servlet request with a value
-    setattr(mock, method, Mock(return_value=value))
+    setattr(req_mock, method, Mock(return_value=value))
     # Verify this value is visible
-    assert_equal(getattr(mock, method)(), value)
+    assert_equal(getattr(req_mock, method)(), value)
     assert_equal(bridge_map[key], value if isinstance(value, str) else str(value))
     assert_equal(getattr(wrapper, method)(), value)
     # Deleting a key works, and is seen in the request wrapper
@@ -59,7 +59,7 @@ def check_request_bridge(method, key, value):
     assert_equal(getattr(wrapper, method)(), None if isinstance(value, str) else -1)
     # FIXME what about adding a new value in?
     # But mock servlet request is not changed
-    assert_equal(getattr(mock, method)(), value)
+    assert_equal(getattr(req_mock, method)(), value)
 
     # FIXME add tests with respect to other dictionary methods
     # that bridge_map should support, including views
