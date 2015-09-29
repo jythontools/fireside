@@ -16,6 +16,7 @@ Also ensure that the connection is closed properly
 import array
 import itertools
 import sys
+from wsgiref.validate import validator
 
 from jythonlib import dict_builder
 from org.python.tools.fireside import RequestBridge, CaptureHttpServletResponse
@@ -156,6 +157,7 @@ class FilterBase(object):
         def setup_coupler():
             (yield)
 
+            @validator
             def null_app(environ, start_response):
                 # print "null_app environ=%s start_response=%s" % (environ, start_response)
                 #for name in call.wrapped_resp.getHeaders():

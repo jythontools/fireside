@@ -1,6 +1,7 @@
 # Test various types of WebOb middleware
 
 import sys
+from wsgiref.validate import validator
 
 from fireside import WSGIFilter
 from webob.dec import wsgify
@@ -10,7 +11,7 @@ from javax.servlet import FilterChain
 
 @wsgify.middleware
 def all_caps(req, app):
-    resp = req.get_response(app)
+    resp = req.get_response(validator(app))
     resp.body = resp.body.upper()
     return resp
 
@@ -35,4 +36,3 @@ def test_webob_filter():
     assert next(resp_mock.outputStream) == b"HI, THERE!\n"
     assert resp_mock.headers == {'Content-Length': '11', 'Content-type': 'text/plain'}
     assert resp_mock.my_status == (200, "OK")
-

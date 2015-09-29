@@ -112,7 +112,7 @@ def test_generic_filter():
     filter = WSGIFilter()
     filter.init(ServletConfigMock(
         { "wsgi.handler": "test_generic_middleware.AuthenticationMiddleware" }))
-
+        #{ "wsgi.handler": "test_generic_middleware.Uppercaser" }))
     class UnitChain(FilterChain):
         def doFilter(self, req, resp):
             resp.outputStream.write("hi, ")

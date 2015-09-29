@@ -1,5 +1,6 @@
 # Generic support of servlet/filter testing
 
+from wsgiref.validate import validator
 from collections import OrderedDict
 from jythonlib import dict_builder
 
@@ -66,7 +67,7 @@ class RequestMock(HttpServletRequest):
         return "http"
 
     def getPathInfo(self):
-        return "baz&blah"
+        return "/baz&blah"
 
     def getServletPath(self):
         return "/foobar"
@@ -114,6 +115,7 @@ class AdaptedErrLog(object):
 # we can generate a family of apps generating various headers, status
 # codes, and streaming/or not output
 
+@validator
 def simple_app(environ, start_response):
     """Simplest possible application object"""
     status = '200 OK'
@@ -122,6 +124,7 @@ def simple_app(environ, start_response):
     return [b"Hello world!\n"]
 
 
+@validator
 def incremental_app(environ, start_response):
     """Simplest possible incremental application object"""
     status = '200 OK'
