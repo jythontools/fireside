@@ -19,10 +19,8 @@ class WSGIServlet(ToolBase, HttpServlet, ServletBase):
         self.do_init(config)
 
     def service(self, req, resp):
-        #print >> sys.stderr, "service req=%s, resp=%s" % (req, resp)
         bridge = self.get_bridge(req)
         environ = dict_builder(bridge.asMap)()
-        # print >> sys.stderr, "environ=%s" % (environ,)
         self.do_wsgi_call(WSGICall(environ, req, resp))
 
 
