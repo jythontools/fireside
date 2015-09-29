@@ -28,7 +28,8 @@ def test_webob_filter():
 
     class UnitChain(FilterChain):
         def doFilter(self, req, resp):
-            resp.outputStream.write("hi, there!\n")
+            resp.outputStream.write("hi, ")
+            resp.outputStream.write("there!\n")
 
     filter.doFilter(req_wrapper, resp_mock, UnitChain())
     assert next(resp_mock.outputStream) == b"HI, THERE!\n"
