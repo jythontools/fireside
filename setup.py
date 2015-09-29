@@ -9,7 +9,7 @@ setup(
     version = "0.3",
     packages = find_packages(),
     install_requires = ["clamp>=0.4"],
-    tests_requires = ["nose", "WebOb"],
+    tests_requires = ["mock", "nose", "WebOb"],
     clamp = {
         "modules": ["fireside"]
     },
