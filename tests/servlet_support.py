@@ -1,12 +1,13 @@
 # Generic support of servlet/filter testing
 
+from collections import OrderedDict
+from jythonlib import dict_builder
+
 from nose.tools import assert_equal, assert_in, assert_is_instance, assert_not_in, assert_raises
 from mock import Mock
-from jythonlib import dict_builder
 
 from javax.servlet import ServletConfig, ServletInputStream
 from javax.servlet.http import HttpServletResponse, HttpServletRequest
-
 from org.python.tools.fireside import RequestBridge, CaptureServletOutputStream
 from org.python.google.common.collect import Iterators
 
@@ -78,8 +79,6 @@ class RequestMock(HttpServletRequest):
         return Iterators.asEnumeration(Iterators.forArray(["abc", "xyz"]))
 
 
-
-
 class ResponseMock(HttpServletResponse):
 
     def __init__(self):
@@ -87,17 +86,18 @@ class ResponseMock(HttpServletResponse):
             if chunk is not None:
                 assert_is_instance(chunk, str)
 
+        self.my_status = None
+        self.headers = OrderedDict()
         self.stream = CaptureServletOutputStream(assert_chunk_is_str)
 
     def getOutputStream(self):
         return self.stream
 
     def setStatus(self, code, msg):
-        print "status %s (%r)" % (code, msg)
+        self.my_status = code, msg
 
     def addHeader(self, name, header):
-        print "header %r=%r" % (name, header)
-
+        self.headers[name] = header
 
 
 # fill in the following mocks
@@ -109,6 +109,10 @@ class AdaptedInputStream(object):
 class AdaptedErrLog(object):
     pass
 
+
+# FIXME it would be worthwhile to parameterize these app functions so
+# we can generate a family of apps generating various headers, status
+# codes, and streaming/or not output
 
 def simple_app(environ, start_response):
     """Simplest possible application object"""
@@ -123,9 +127,10 @@ def incremental_app(environ, start_response):
     status = '200 OK'
     response_headers = [('Content-type', 'text/plain')]
     start_response(status, response_headers)
-    for chunk in [b"Hello", b"world!", b"\n"]:
+    for chunk in [b"Hello", b" ", b"world!", b"\n"]:
         yield chunk
 
 
-# need simple apps that consume input stream (via POST); headers; what else?
+# FIXME also need simple apps that consume input stream (via POST);
+# supplied headers; what else?
 

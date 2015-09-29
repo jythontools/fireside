@@ -43,7 +43,7 @@ class WSGICall(object):
         # convert from such usage as "404 Not Found"
         split = status.find(" ")
         code = status[:split]
-        msg = status[split:]
+        msg = status[split+1:]
         # HttpServletResponse.setStatus(int, String) is deprecated, but still useful for REST :)
         # (setError does the wrong thing in comparison)
         # see https://github.com/http4s/http4s/issues/32
