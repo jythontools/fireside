@@ -1,9 +1,8 @@
-from .servlet_support import *
+from servlet_support import *
 
 # Change into a true test of the wrapper/map bridge code
-# verify cases like read-after-delete
+# verify cases like read-after-delete - DONE
 # need to test all methods, but let's make that data-driven, as opposed to being tedious
-
 
 def test_content_length():
     mock = HttpServletRequestMock()
@@ -58,6 +57,7 @@ def check_request_bridge(method, key, value):
     del bridge_map[key]
     assert_not_in(key, bridge_map)
     assert_equal(getattr(wrapper, method)(), None if isinstance(value, str) else -1)
+    # FIXME what about adding a new value in?
     # But mock servlet request is not changed
     assert_equal(getattr(mock, method)(), value)
 

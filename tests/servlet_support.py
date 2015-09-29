@@ -1,13 +1,13 @@
-# Generic WSGI support
+# Generic support of servlet/filter testing
 
 from nose.tools import assert_equal, assert_in, assert_is_instance, assert_not_in, assert_raises
 from mock import Mock
 from jythonlib import dict_builder
 
-from javax.servlet import ServletInputStream
+from javax.servlet import ServletConfig, ServletInputStream
 from javax.servlet.http import HttpServletRequest
-from org.python.google.common.collect import Iterators
 from org.python.tools.fireside import RequestBridge, CaptureServletOutputStream
+from org.python.google.common.collect import Iterators
 
 
 class HttpServletRequestMock(HttpServletRequest):
@@ -27,6 +27,9 @@ class HttpServletRequestMock(HttpServletRequest):
 
     def getQueryString(self):
         return "?q=foo"
+
+    def getContentLength(self):
+        return -1
 
     def getContentType(self):
         return "text/html"
@@ -66,10 +69,32 @@ class HttpServletRequestMock(HttpServletRequest):
         return Iterators.asEnumeration(Iterators.forArray(["abc", "xyz"]))
 
 
-# mock the following
+# fill in the following mocks
 
 class AdaptedInputStream(object):
     pass
 
+
 class AdaptedErrLog(object):
     pass
+
+
+def simple_app(environ, start_response):
+    """Simplest possible application object"""
+    status = '200 OK'
+    response_headers = [('Content-type', 'text/plain')]
+    start_response(status, response_headers)
+    return [b"Hello world!\n"]
+
+
+def incremental_app(environ, start_response):
+    """Simplest possible incremental application object"""
+    status = '200 OK'
+    response_headers = [('Content-type', 'text/plain')]
+    start_response(status, response_headers)
+    for chunk in [b"Hello", b"world!", b"\n"]:
+        yield chunk
+
+
+# need simple apps that consume input stream (via POST); headers; what else?
+

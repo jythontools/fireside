@@ -246,11 +246,11 @@ public class RequestBridge {
     }
 
     public void loadAll() {
-        System.err.println("loadAll changed=" + changed);
+//        System.err.println("loadAll changed=" + changed);
         for (String k : getSettings()) {
             try {
                 if (!changed.contains(Py.newString(k))) {
-                    System.err.println("getting key=" + k);
+//                    System.err.println("getting key=" + k);
                     cache.get(Py.newString(k));
                 }
             } catch (ExecutionException e) {

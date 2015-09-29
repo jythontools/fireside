@@ -62,12 +62,12 @@ class WSGICall(object):
                  self.resp.addHeader(name, value.encode("latin1"))
 
         out = self.resp.getOutputStream()
-        print >> sys.stderr, "Writing data %r to output stream" % (data,)
+        # print >> sys.stderr, "Writing data %r to output stream" % (data,)
         out.write(array.array("b", data))
         out.flush()
 
     def close(self):
-        print >> sys.stderr, "Would close output stream... FIXME"
+        # print >> sys.stderr, "Would close output stream... FIXME"
         self.resp.getOutputStream().close()
 
     def start_response(self, status, response_headers, exc_info=None):
@@ -117,14 +117,14 @@ class ServletBase(object):
         return RequestBridge(req, self.err_log, AdaptedInputStream(req.getInputStream()))
 
     def do_wsgi_call(self, call):
-        print >> sys.stderr, "About to make call WSGI app=%s" % (self.application,)
+        # print >> sys.stderr, "About to make call WSGI app=%s" % (self.application,)
         result = self.application(call.environ, call.start_response)
 
-        print >> sys.stderr, "result=%s" % (result,)
+        # print >> sys.stderr, "result=%s" % (result,)
         try:
             for data in result:
                 if data:    # don't send headers until body appears
-                    print >> sys.stderr, "Writing data %r" % (data,)
+                    # print >> sys.stderr, "Writing data %r" % (data,)
                     call.write(data)
             if not call.headers_sent:
                 call.write("")   # send headers now if body was empty
@@ -133,7 +133,7 @@ class ServletBase(object):
             #call.close()
             # FIXME restore, but currently closing here causes an issue when part of a filter chain
             if hasattr(result, "close"):
-                print >> sys.stderr, "Closing result %s" % (result,)
+                # print >> sys.stderr, "Closing result %s" % (result,)
                 result.close()
             
 
@@ -157,7 +157,7 @@ class FilterBase(object):
             (yield)
 
             def null_app(environ, start_response):
-                print "null_app environ=%s start_response=%s" % (environ, start_response)
+                # print "null_app environ=%s start_response=%s" % (environ, start_response)
                 #for name in call.wrapped_resp.getHeaders():
                 #    ...
                 response_headers = [('Content-type', 'text/plain')]
