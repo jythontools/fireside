@@ -153,7 +153,7 @@ class FilterBase(object):
         progress = []
         call_filter = None
 
-        def setup_puller():
+        def setup_coupler():
             (yield)
 
             def null_app(environ, start_response):
@@ -162,13 +162,13 @@ class FilterBase(object):
                 #    ...
                 response_headers = [('Content-type', 'text/plain')]
                 # status = call.wrapped_resp.getStatus()
-                print >> sys.stderr, "null_app calling start_response"
+                # print >> sys.stderr, "null_app calling start_response"
                 start_response("200 OK", response_headers)
-                print >> sys.stderr, "null_app returning iter on output stream"
+                # print >> sys.stderr, "null_app returning iter on output stream"
 
                 output_stream = call.wrapped_resp.getOutputStream()
                 for i, chunk in enumerate(output_stream):
-                    print >> sys.stderr, "Got this chunk %d %r (%r)" % (i, chunk, progress)
+                    # print >> sys.stderr, "Got this chunk %d %r (%r)" % (i, chunk, progress)
 
                     # check if stalled (is there no progress in the below while loop?)
                     # if stalled, we have to wait until the filter chain is complete before
@@ -182,15 +182,16 @@ class FilterBase(object):
                         # frameworks -- do not abide by incremental chunk processing, and instead
                         # consume everything in the filter. Could potentially make this debug
                         # logging, but it would happen on every such call of course.
-                        print >> sys.stderr, "No progress being made, move the call to the filter chain to here"
+                        # print >> sys.stderr, "No progress being made, move the call to the filter chain to here"
                         progress[:] = [False]  # need three states! FIXME
 
                         def f(s):
-                            print "null_app stalled value %r" % (s,)
+                            pass
+                            # print "null_app stalled value %r" % (s,)
 
                         output_stream.callback = f
                         call_filter()
-                        print >> sys.stderr, "Filter chain completed"
+                        # print >> sys.stderr, "Filter chain completed"
                         for chunk in output_stream.getChunks():
                             yield chunk
                         return
@@ -204,41 +205,42 @@ class FilterBase(object):
 
             wsgi_filter = self.application(null_app)
             result = wsgi_filter(call.environ, call.start_response)
-            print >> sys.stderr, "got result from wsgi_filter %s" % (result,)
+            # print >> sys.stderr, "got result from wsgi_filter %s" % (result,)
             it = iter(result)
-            print >> sys.stderr, "got iterator %s" % (it,)
+            # print >> sys.stderr, "got iterator %s" % (it,)
             while True:
                 try:
-                    print >> sys.stderr, "waiting on yield"
+                    # print >> sys.stderr, "waiting on yield"
                     if not progress or progress[0] != False:
                         data = (yield)
                     else:
                         data = None
-                    print >> sys.stderr, "completed yield, waiting on next of %s" % (it,)
+                    # print >> sys.stderr, "completed yield, waiting on next of %s" % (it,)
                     filtered = next(it)
                     progress[:] = [True]
-                    print >> sys.stderr, "%r -> %r" % (data, filtered)
-                    print >> sys.stderr, "call %r" % (call,)
+                    # print >> sys.stderr, "%r -> %r" % (data, filtered)
+                    # print >> sys.stderr, "call %r" % (call,)
                     call.write(filtered)
                 except StopIteration:
                     break
             if not call.headers_sent:
                 call.write("")   # send headers now if body was empty
 
-        puller = setup_puller()
+        coupler = setup_coupler()
         # fill in the wrapping servlet response
-        call.wrapped_resp = CaptureHttpServletResponse(resp, puller.send)
+        call.wrapped_resp = CaptureHttpServletResponse(resp, coupler.send)
         call_filter = lambda: chain.doFilter(wrapped_req, call.wrapped_resp)  # FIXME maybe name "complete_filter_chain"?
-        puller.send(None)  # advance the coroutine to before filtering
-        puller.send(None)  # advance one more time to after sending the response
+        coupler.send(None)  # advance the coroutine to before filtering
+        coupler.send(None)  # advance one more time to after sending the response
         if not progress or progress[0] != False:
-            print >> sys.stderr, "Calling filter"
+            # print >> sys.stderr, "Calling filter"
             call_filter()
         else:
-            print >> sys.stderr, "Not calling filter, should be done in null_app"
+            pass
+            # print >> sys.stderr, "Not calling filter, should be done in null_app"
 
-        print >> sys.stderr, "Closing puller"
-        puller.close() # put in a try-finally context
+        # print >> sys.stderr, "Closing coupler"
+        coupler.close() # put in a try-finally context
 
 
 class AdaptedInputStream(object):

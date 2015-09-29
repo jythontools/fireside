@@ -10,12 +10,7 @@ from javax.servlet import FilterChain
 
 @wsgify.middleware
 def all_caps(req, app):
-    print "app %s %s" % (type(app), app)
-    print "req %s %s" % (type(req), req)
-
-    print "before response for app"
     resp = req.get_response(app)
-    print "resp %s %s" % (type(resp), resp)
     resp.body = resp.body.upper()
     return resp
 
