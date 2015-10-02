@@ -11,7 +11,7 @@ from javax.servlet import FilterChain
 
 @wsgify.middleware
 def all_caps(req, app):
-    resp = req.get_response(validator(app))
+    resp = req.get_response(app)
     resp.body = resp.body.upper()
     return resp
 
@@ -29,10 +29,12 @@ def test_webob_filter():
 
     class UnitChain(FilterChain):
         def doFilter(self, req, resp):
+            resp.addHeader('Content-Type', 'text/plain')
             resp.outputStream.write("hi, ")
             resp.outputStream.write("there!\n")
 
     filter.doFilter(req_wrapper, resp_mock, UnitChain())
     assert next(resp_mock.outputStream) == b"HI, THERE!\n"
-    assert resp_mock.headers == {'Content-Length': '11', 'Content-type': 'text/plain'}
-    assert resp_mock.my_status == (200, "OK")
+    assert resp_mock.getHeader('Content-Type') == 'text/plain'
+    assert resp_mock.getHeader('Content-Length') == '11'
+    assert resp_mock.getStatus() == 200

@@ -17,8 +17,8 @@ def test_servlet():
         { "wsgi.handler": "servlet_support.simple_app" }))
     servlet.service(req_wrapper, resp_mock)
     assert next(resp_mock.outputStream) == b"Hello world!\n"
-    assert resp_mock.headers == {'Content-type': 'text/plain'}
-    assert resp_mock.my_status == (200, "OK")
+    assert resp_mock.getHeader('Content-Type') == 'text/plain'
+    assert resp_mock.getStatus() == 200
 
 
 def test_incremental_servlet():
@@ -35,9 +35,8 @@ def test_incremental_servlet():
     assert next(resp_mock.outputStream) == b" "
     assert next(resp_mock.outputStream) == b"world!"
     assert next(resp_mock.outputStream) == b"\n"
-    assert resp_mock.headers == {'Content-type': 'text/plain'}
-    assert resp_mock.my_status == (200, "OK")
-
+    assert resp_mock.getHeader('Content-Type') == 'text/plain'
+    assert resp_mock.getStatus() == 200
 
 
 # write other tests - need to send in headers, etc

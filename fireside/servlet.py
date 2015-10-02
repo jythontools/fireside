@@ -151,23 +151,31 @@ class FilterBase(object):
         wrapped_req = bridge.asWrapper()
         call = WSGICall(environ, req, resp)
 
-        progress = []
+        progress = []  # FIXME currently we are using three states - [], [False], [True] - which is pretty awful
+        # FIXME instead something like [PROBING], [INCREMENTAL], [BATCH] probably would work better
         call_filter = None
 
         def setup_coupler():
             (yield)
 
-            @validator
+            # @validator
             def null_app(environ, start_response):
                 # print "null_app environ=%s start_response=%s" % (environ, start_response)
                 #for name in call.wrapped_resp.getHeaders():
                 #    ...
-                response_headers = [('Content-type', 'text/plain')]
-                # status = call.wrapped_resp.getStatus()
-                # print >> sys.stderr, "null_app calling start_response"
-                start_response("200 OK", response_headers)
-                # print >> sys.stderr, "null_app returning iter on output stream"
+                response_headers = []
+                for name in call.wrapped_resp.getHeaderNames():
+                    for value in call.wrapped_resp.getHeaders(name):
+                        response_headers.append((str(name), value.encode("latin1")))
 
+                # Is it possible to get the underlying status from the response?
+                status = "%s FIXME" % (call.wrapped_resp.getStatus(),)
+
+                # Reset the underlying response so we can re-write headers/status;
+                # otherwise we will get duplicated headers
+                call.wrapped_resp.reset()
+
+                start_response(status, response_headers)
                 output_stream = call.wrapped_resp.getOutputStream()
                 for i, chunk in enumerate(output_stream):
                     # print >> sys.stderr, "Got this chunk %d %r (%r)" % (i, chunk, progress)
@@ -179,12 +187,6 @@ class FilterBase(object):
                     yield chunk
 
                     if not progress:
-                        # FIXME my reading of the PEP 3333 middleware contract is that
-                        # this variant is not required. However, WebOb -- and probably other
-                        # frameworks -- do not abide by incremental chunk processing, and instead
-                        # consume everything in the filter. Could potentially make this debug
-                        # logging, but it would happen on every such call of course.
-                        # print >> sys.stderr, "No progress being made, move the call to the filter chain to here"
                         progress[:] = [False]  # need three states! FIXME
 
                         def f(s):
@@ -198,18 +200,13 @@ class FilterBase(object):
                             yield chunk
                         return
 
-                    if i > 100:  # FIXME remove this debugging stopgap (obviously)
-                        # FIXME it probably makes sense to log this however, since this
-                        # is violating the PEP 3333 middleware contract
-                        print >> sys.stderr, "Stopping, obviously we are broken!!!!!"
-                        break
-                #return ["this is the fake response text"]
+                    if i > 100:
+                        raise AssertionError("Stopping, obviously we are broken!!!!!")
 
             wsgi_filter = self.application(null_app)
             result = wsgi_filter(call.environ, call.start_response)
             # print >> sys.stderr, "got result from wsgi_filter %s" % (result,)
             it = iter(result)
-            # print >> sys.stderr, "got iterator %s" % (it,)
             while True:
                 try:
                     # print >> sys.stderr, "waiting on yield"
