@@ -21,16 +21,16 @@ import java.util.concurrent.ExecutionException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
 
+import com.google.common.base.CharMatcher;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ForwardingConcurrentMap;
 import org.python.core.Py;
 import org.python.core.PyObject;
 import org.python.core.PyString;
 import org.python.core.PyTuple;
 import org.python.core.codecs;
-import org.python.google.common.base.CharMatcher;
-import org.python.google.common.cache.CacheBuilder;
-import org.python.google.common.cache.CacheLoader;
-import org.python.google.common.cache.LoadingCache;
-import org.python.google.common.collect.ForwardingConcurrentMap;
 
 
 public class RequestBridge {

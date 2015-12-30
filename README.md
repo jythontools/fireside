@@ -1,5 +1,4 @@
-Fireside
-========
+# Fireside
 
 Blazing fast Servlet 3.x API for WSGI apps running on Jython that
 works with standard setuptools. Note this is not a direct replacement
@@ -8,6 +7,19 @@ not readily for working with setuptools).
 
 Some initial documentation on how to use Fireside is found in the
 [HelloWSGI][] sample application.
+
+# Building
+
+Currently building requires the following steps:
+
+
+
+
+# Testing
+
+Use 
+
+
 
 <!--references-->
 

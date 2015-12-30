@@ -1,14 +1,17 @@
 apply plugin: 'java'
 
 version = '0.1'
-jar { }
+
+jar {
+    baseName = 'fireside'
+}
 
 repositories {
     mavenCentral()
 }
 	
 dependencies {
-    compile files ('/Users/jbaker/jythondev/jython27/dist/jython-standalone.jar')
-// group: 'org.python', name: 'jython-standalone', version: '2.7.0'
-    compile group: 'javax.servlet', name: 'javax.servlet-api', version: '3.1.0'
+    compile 'com.google.guava:guava:19.0'
+    compile 'javax.servlet:javax.servlet-api:3.1.0'
+    compile 'org.python:jython-standalone:2.7.0'
 }

@@ -8,8 +8,10 @@ setup(
     name = "fireside",
     version = "0.3",
     packages = find_packages(),
-    install_requires = ["clamp>=0.4"],
-    tests_requires = ["mock", "nose", "WebOb"],
+    install_requires = ["clamp"],
+    dependency_links=["git+https://github.com/jythontools/clamp.git"],
+    tests_require = ["mock", "nose", "WebOb"],
+    test_suite = "nose.collector",
     clamp = {
         "modules": ["fireside"]
     },
